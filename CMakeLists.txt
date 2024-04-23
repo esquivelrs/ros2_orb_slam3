@@ -165,6 +165,7 @@ install(FILES ${g2o_PATH} DESTINATION lib)
 add_executable(mono_node_cpp
   src/mono_example.cpp
   src/common.cpp
+  src/mono_realsense.cpp
 )
 
 ament_target_dependencies(mono_node_cpp
@@ -177,6 +178,12 @@ target_link_libraries(mono_node_cpp PUBLIC orb_slam3_lib) # Link a node with the
 # Install all the header files in package/package/include
 install (DIRECTORY include/ 
         DESTINATION include
+)
+
+# install launch files
+install(
+  DIRECTORY launch/
+  DESTINATION share/${PROJECT_NAME}/launch
 )
 
 # Install our node and library
