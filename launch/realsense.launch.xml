@@ -1,0 +1,9 @@
+<launch>
+    <include file="$(find-pkg-share realsense2_camera)/launch/rs_launch.py">
+        <!-- <arg name="rgb_camera.color_profile" value="1280x720x15"/> -->
+    </include>
+    <node pkg="ros2_orb_slam3" exec="mono_node_cpp">
+        <param name="sensor_type" value="realsense"/>
+        <param name="use_pangolin" value="true"/>
+    </node>
+</launch>

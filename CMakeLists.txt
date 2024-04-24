@@ -3,6 +3,7 @@ project(ros2_orb_slam3)
 
 # Make sure to set this path before building the  
 set(ENV{PYTHONPATH} "/opt/ros/humble/lib/python3.10/site-packages/") # Must be set to match your installation
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Must use C++17 to make it compatible with rclcpp
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -O3")
@@ -21,6 +22,9 @@ else()
 endif()
 
 LIST(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake_modules) # REDUNDANT?
+
+set(project_path ${CMAKE_CURRENT_SOURCE_DIR})
+add_definitions(-DPROJECT_PATH="${project_path}")
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
@@ -162,9 +166,9 @@ install(FILES ${g2o_PATH} DESTINATION lib)
 
 
 # Add executable
+# src/mono_example.cpp
+# src/common.cpp
 add_executable(mono_node_cpp
-  src/mono_example.cpp
-  src/common.cpp
   src/mono_realsense.cpp
 )
 
