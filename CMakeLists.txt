@@ -166,10 +166,16 @@ install(FILES ${g2o_PATH} DESTINATION lib)
 
 
 # Add executable
-# src/mono_example.cpp
-# src/common.cpp
+add_executable(example_mono_node_cpp
+  src/mono_example.cpp
+  src/common.cpp
+)
 add_executable(mono_node_cpp
   src/mono_realsense.cpp
+)
+
+ament_target_dependencies(example_mono_node_cpp
+  PUBLIC ${THIS_PACKAGE_INCLUDE_DEPENDS}
 )
 
 ament_target_dependencies(mono_node_cpp
@@ -177,6 +183,7 @@ ament_target_dependencies(mono_node_cpp
 )
 
 target_link_libraries(mono_node_cpp PUBLIC orb_slam3_lib) # Link a node with the internal shared library
+target_link_libraries(example_mono_node_cpp PUBLIC orb_slam3_lib) # Link a node with the internal shared library
 
 
 # Install all the header files in package/package/include
@@ -191,7 +198,7 @@ install(
 )
 
 # Install our node and library
-install(TARGETS mono_node_cpp orb_slam3_lib
+install(TARGETS mono_node_cpp example_mono_node_cpp orb_slam3_lib
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION lib/${PROJECT_NAME}

@@ -47,8 +47,8 @@ class MonoRealSense : public rclcpp::Node
       }
       else
       {
+        RCLCPP_ERROR(get_logger(), "Sensor type not recognized");
       }
-      RCLCPP_ERROR(get_logger(), "Sensor type not recognized");
 
       image_sub = create_subscription<sensor_msgs::msg::Image>(
           "camera/color/image_raw", 10, std::bind(&MonoRealSense::image_callback, this, _1));
@@ -64,8 +64,11 @@ class MonoRealSense : public rclcpp::Node
     {
       auto cv_ptr = cv_bridge::toCvShare(msg, sensor_msgs::image_encodings::MONO8);
       double timestamp = msg->header.stamp.sec + msg->header.stamp.nanosec * 1e-9;
+
+      cv::imshow("image", cv_ptr->image);
+      cv::waitKey(1);
       Sophus::SE3f Tcw = pAgent->TrackMonocular(cv_ptr->image, timestamp);
-      RCLCPP_INFO_STREAM(get_logger(), "Pose: " << Tcw.matrix());
+      // RCLCPP_INFO_STREAM(get_logger(), "Pose: " << Tcw.matrix());
     }
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_sub;
 
