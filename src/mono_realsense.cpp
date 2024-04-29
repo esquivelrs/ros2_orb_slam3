@@ -3,6 +3,7 @@
 #include <std_msgs/msg/string.hpp>
 #include <std_msgs/msg/bool.hpp>
 #include <sensor_msgs/msg/image.hpp>
+#include <sensor_msgs/msg/imu.hpp>
 
 #include <Eigen/Dense>
 #include <cv_bridge/cv_bridge.h>
@@ -53,6 +54,9 @@ class MonoRealSense : public rclcpp::Node
       image_sub = create_subscription<sensor_msgs::msg::Image>(
           "camera/color/image_raw", 10, std::bind(&MonoRealSense::image_callback, this, _1));
 
+      imu_sub = create_subscription<sensor_msgs::msg::Imu>(
+          "camera/imu", 10, std::bind(&MonoRealSense::imu_callback, this, _1));
+
       pAgent = std::make_shared<ORB_SLAM3::System>(vocabulary_file_path, 
           settings_file_path,
           sensor_type,
@@ -60,6 +64,10 @@ class MonoRealSense : public rclcpp::Node
     }
 
   private:
+    void imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg)
+    {
+      imu_msg = *msg;
+    }
     void image_callback(const sensor_msgs::msg::Image::SharedPtr msg)
     {
       auto cv_ptr = cv_bridge::toCvShare(msg, sensor_msgs::image_encodings::MONO8);
@@ -67,11 +75,17 @@ class MonoRealSense : public rclcpp::Node
 
       cv::imshow("image", cv_ptr->image);
       cv::waitKey(1);
-      Sophus::SE3f Tcw = pAgent->TrackMonocular(cv_ptr->image, timestamp);
+      ORB_SLAM3::IMU::Point imu_data(imu_msg.linear_acceleration.x, imu_msg.linear_acceleration.y, imu_msg.linear_acceleration.z,
+          imu_msg.angular_velocity.x, imu_msg.angular_velocity.y, imu_msg.angular_velocity.z, timestamp);
+      const vector<ORB_SLAM3::IMU::Point> vImuMeas = {imu_data};
+      Sophus::SE3f Tcw = pAgent->TrackMonocular(cv_ptr->image, timestamp, vImuMeas);
+      vector<ORB_SLAM3::MapPoint*>map_points = pAgent->GetAllMapPoints();
       // RCLCPP_INFO_STREAM(get_logger(), "Pose: " << Tcw.matrix());
     }
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_sub;
+    rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub;
 
+    sensor_msgs::msg::Imu imu_msg;
     std::shared_ptr<ORB_SLAM3::System> pAgent;
     std::string vocabulary_file_path;
     std::string settings_file_path;
