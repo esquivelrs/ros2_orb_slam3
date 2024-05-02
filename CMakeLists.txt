@@ -24,6 +24,7 @@ endif()
 LIST(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake_modules) # REDUNDANT?
 
 set(project_path ${CMAKE_CURRENT_SOURCE_DIR})
+set(ENV{PROJECT_PATH} "${project_path}")
 add_definitions(-DPROJECT_PATH="${project_path}")
 
 # find dependencies
@@ -173,6 +174,9 @@ add_executable(example_mono_node_cpp
 add_executable(mono_node_cpp
   src/mono_realsense.cpp
 )
+add_executable(capture_video
+    src/capture_realsense_video.cpp
+)
 
 ament_target_dependencies(example_mono_node_cpp
   PUBLIC ${THIS_PACKAGE_INCLUDE_DEPENDS}
@@ -182,13 +186,22 @@ ament_target_dependencies(mono_node_cpp
   PUBLIC ${THIS_PACKAGE_INCLUDE_DEPENDS}
 )
 
+ament_target_dependencies(capture_video
+  PUBLIC ${THIS_PACKAGE_INCLUDE_DEPENDS}
+)
+
 target_link_libraries(mono_node_cpp PUBLIC orb_slam3_lib) # Link a node with the internal shared library
 target_link_libraries(example_mono_node_cpp PUBLIC orb_slam3_lib) # Link a node with the internal shared library
-
 
 # Install all the header files in package/package/include
 install (DIRECTORY include/ 
         DESTINATION include
+)
+
+# install video files
+install(
+  DIRECTORY videos/
+  DESTINATION share/${PROJECT_NAME}/videos
 )
 
 # install launch files
@@ -198,7 +211,7 @@ install(
 )
 
 # Install our node and library
-install(TARGETS mono_node_cpp example_mono_node_cpp orb_slam3_lib
+install(TARGETS capture_video mono_node_cpp example_mono_node_cpp orb_slam3_lib
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION lib/${PROJECT_NAME}

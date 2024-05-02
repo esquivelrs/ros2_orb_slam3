@@ -1,0 +1,7 @@
+<launch>
+    <arg name="file_name" default="output.mp4"/>
+    <include file="$(find-pkg-share realsense2_camera)/launch/rs_launch.py"/>
+    <node pkg="ros2_orb_slam3" exec="capture_video">
+        <param name="file_name" value="$(var file_name)"/>
+    </node>
+</launch>

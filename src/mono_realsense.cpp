@@ -70,6 +70,7 @@ class MonoRealSense : public rclcpp::Node
     }
     void image_callback(const sensor_msgs::msg::Image::SharedPtr msg)
     {
+      // change mono8 to something more? maybe orb_slam3 expects that not sure
       auto cv_ptr = cv_bridge::toCvShare(msg, sensor_msgs::image_encodings::MONO8);
       double timestamp = msg->header.stamp.sec + msg->header.stamp.nanosec * 1e-9;
 
