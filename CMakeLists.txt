@@ -204,6 +204,11 @@ install(
   DESTINATION share/${PROJECT_NAME}/videos
 )
 
+# install EuRoC dataset
+install(
+  DIRECTORY TEST_DATASET/
+  DESTINATION share/${PROJECT_NAME}/TEST_DATASET)
+
 # install launch files
 install(
   DIRECTORY launch/
