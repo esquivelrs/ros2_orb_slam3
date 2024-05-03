@@ -1,9 +1,21 @@
+#include <rclcpp/logging.hpp>
 #include <std_msgs/msg/header.hpp>
 #include <std_msgs/msg/float64.hpp>
 #include <std_msgs/msg/string.hpp>
 #include <std_msgs/msg/bool.hpp>
 #include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/imu.hpp>
+
+#include <signal.h>
+#include <stdlib.h>
+#include <iostream>
+#include <algorithm>
+#include <fstream>
+#include <chrono>
+#include <ctime>
+#include <sstream>
+
+#include <condition_variable>
 
 #include <Eigen/Dense>
 #include <cv_bridge/cv_bridge.h>
@@ -52,10 +64,13 @@ class MonoRealSense : public rclcpp::Node
       if (sensor_type_param == "monocular")
       {
         sensor_type = ORB_SLAM3::System::MONOCULAR;
+      } else if (sensor_type_param == "imu-monocular") {
+        sensor_type = ORB_SLAM3::System::IMU_MONOCULAR;
       }
       else
       {
         RCLCPP_ERROR(get_logger(), "Sensor type not recognized");
+        rclcpp::shutdown();
       }
 
       // open video file
@@ -78,7 +93,9 @@ class MonoRealSense : public rclcpp::Node
       pAgent = std::make_shared<ORB_SLAM3::System>(vocabulary_file_path, 
           settings_file_path,
           sensor_type,
-          use_pangolin);
+          use_pangolin,
+          0);
+      image_scale = pAgent->GetImageScale();
 
       // create subscriptions
       image_sub = create_subscription<sensor_msgs::msg::Image>(
@@ -93,9 +110,9 @@ class MonoRealSense : public rclcpp::Node
     }
 
   private:
-    void imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg)
+    void imu_callback(const sensor_msgs::msg::Imu &msg)
     {
-      imu_msg = *msg;
+      imu_msg = msg;
     }
     void image_callback(const sensor_msgs::msg::Image::SharedPtr msg)
     {
@@ -117,17 +134,22 @@ class MonoRealSense : public rclcpp::Node
     {
       cv::Mat frame;
       input_video >> frame;
-      // ORB_SLAM3::IMU::Point imu_data(imu_msg.linear_acceleration.x, imu_msg.linear_acceleration.y, imu_msg.linear_acceleration.z,
-      //     imu_msg.angular_velocity.x, imu_msg.angular_velocity.y, imu_msg.angular_velocity.z, timestamp);
-      Sophus::SE3f Tcw = pAgent->TrackMonocular(frame, timestamp);//, vImuMeas);
-      if (frame.empty())
-      {
-        RCLCPP_INFO_STREAM(get_logger(), "End of video file");
-        // rclcpp::shutdown();
+      if (!frame.empty()) {
+        if(image_scale != 1.f) {
+          // std::chrono::steady_clock::time_point t_Start_Resize = std::chrono::steady_clock::now();
+          cv::resize(frame, frame, cv::Size(frame.cols*image_scale, frame.rows*image_scale));
+          // std::chrono::steady_clock::time_point t_End_Resize = std::chrono::steady_clock::now();
+          // double t_resize = std::chrono::duration_cast<std::chrono::duration<double,std::milli>>(t_End_Resize - t_Start_Resize).count();
+        }
+
+        Sophus::SE3f Tcw = pAgent->TrackMonocular(frame, timestamp);//, vImuMeas);
+        cv::imshow("frame", frame);
+        cv::waitKey(1);
+        timestamp += 1.0/30.0;
+      } else {
+        RCLCPP_INFO_STREAM_ONCE(get_logger(), "End of video file");
+        rclcpp::shutdown();
       }
-      cv::imshow("frame", frame);
-      cv::waitKey(1);
-      timestamp += 1.0/30.0;
     }
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_sub;
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub;
@@ -142,6 +164,7 @@ class MonoRealSense : public rclcpp::Node
     std::shared_ptr<ORB_SLAM3::System> pAgent;
     std::string vocabulary_file_path;
     std::string settings_file_path;
+    float image_scale;
     double timestamp;
 };
 

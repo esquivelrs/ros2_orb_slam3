@@ -1,6 +1,52 @@
-# ROS2 ORB SLAM3 V1.0 package
+# ROS2 ORB SLAM3 V1.1 package
 
-A ROS2 package for ORB SLAM3 V1.0. Focus is on native integration with ROS2 ecosystem. My goal is to provide a "bare-bones" starting point for developers in using ORB SLAM3 framework in their ROS 2 projects. Hence, this package will not use more advanced features of ROS 2 such as rviz, tf and launch files. This project structure is heavily influenced by the excellent ROS1 port of ORB SLAM3 by [thien94](https://github.com/thien94/orb_slam3_ros/tree/master). 
+This repository is a part of my final project for the Master of Science in
+Robotics program at Northwestern University. It is a fork of the original
+repository by Mechazo11. I'm building out the monocular and imu-monocular
+SLAM capabilities of the package, and integrating more ROS2 features.
+
+## Installation
+This project is a ROS2 humble package.
+
+I'm going to assume you know the basics of cloning a git repo and setting up a
+ros2 workspace and will not go into detail here. All other installation
+requirements can be found below in the README for the original repository.
+
+## Running the Package
+To run the monocular odometry example you can run the following command:
+```bash
+$ ros2 launch ros2_orb_slam3 example.launch.xml
+```
+
+To run monocular only SLAM on a pre-recorded video, you can run the following
+command:
+```bash
+$ ros2 launch ros2_orb_slam3 mapping.launch.xml use_live_feed:=false file_name:="your_file_name_here.mp4"
+```
+
+The package is expecting an mp4 video here, eventually I'll make it so it can
+accept other file formats. There are two demo videos already in the /videos
+directory, "graham_apt_video.mp4" and "msr_room.mp4". You can also record your
+own videos with the command:
+```bash
+$ ros2 launch ros2_orb_slam3 capture_video.launch.xml file_name:="your_file_name_here.mp4"
+```
+
+To stop recording, simply kill the node with ctrl+c. After doing so your video
+will appear in the /videos directory.
+
+You can also run the package with a live feed from a RealSense D435i camera.
+To do this, run the following command:
+```bash
+$ ros2 launch ros2_orb_slam3 mapping.launch.xml use_live_feed:=true
+```
+
+This package is in progress, though every command above should work right now.
+You can check on upcoming features and current progress by viewing the github
+project for this package: https://github.com/users/gjcliff/projects/3
+
+**Everything below this line is the README from Mechazo11's original repository.**
+_______________________________________________________________________________
 
 ## 0. Preamble
 * This package builds [ORB-SLAM3](https://github.com/UZ-SLAMLab/ORB_SLAM3) V1.0 as a shared internal library. Comes included with a number of Thirdparty libraries [DBoW2, g2o, Sophus]

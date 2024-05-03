@@ -1,0 +1,13 @@
+<launch>
+    <arg name="sensor_type" default="monocular"/>
+    <arg name="use_pangolin" default="true"/>
+    <arg name="use_live_feed" default="true"/>
+    <arg name="file_name" default="graham_apt_video.mp4"/>
+    <include file="$(find-pkg-share realsense2_camera)/launch/rs_launch.py" if="$(eval '\'$(var use_live_feed)\' == \'true\'')"/>
+    <node pkg="ros2_orb_slam3" exec="mono_node_cpp">
+        <param name="sensor_type" value="monocular"/>
+        <param name="use_pangolin" value="true"/>
+        <param name="use_live_feed" value="$(var use_live_feed)"/>
+        <param name="video_name" value="$(var file_name)"/>
+    </node>
+</launch>
