@@ -23,16 +23,15 @@ class MonoRealSense : public rclcpp::Node
           "camera/color/image_raw", 10, std::bind(&MonoRealSense::image_callback, this, _1));
 
       std::string file_name = static_cast<std::string>(PROJECT_PATH) + "/videos/"+ video_name;
-      output_video.open(file_name, 0, 30, cv::Size(1280, 720));
+      RCLCPP_INFO_STREAM(get_logger(), "file_name: " << file_name);
+      // output_video.open(file_name, 0, 30, cv::Size(1280, 720), false);
+      output_video.open(file_name, cv::VideoWriter::fourcc('M', 'P', 'E', 'G'), 30, cv::Size(1280, 720), false);
       RCLCPP_INFO_STREAM(get_logger(), "project_path: " << PROJECT_PATH);
       if (!output_video.isOpened())
       {
         RCLCPP_ERROR(get_logger(), "Could not open video file for writing");
         rclcpp::shutdown();
       }
-    }
-    ~MonoRealSense()
-    {
     }
 
   private:
