@@ -1,0 +1,5 @@
+<launch>
+    <node pkg="rviz2" exec="rviz2" args="-d $(find-pkg-share ros2_orb_slam3)/rviz/point_cloud.rviz"/>
+    <node pkg="ros2_orb_slam3" exec="visualize_point_cloud"/>
+    <node pkg="tf2_ros" exec="static_transform_publisher" args="--x 0 --y 0 --z 0 --yaw 0 --pitch 0 --roll 0 --frame-id world --child-frame-id point_cloud"/>
+</launch>

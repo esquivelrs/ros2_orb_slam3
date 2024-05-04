@@ -5,10 +5,12 @@
 #include <std_msgs/msg/bool.hpp>
 #include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/imu.hpp>
+#include <sensor_msgs/msg/point_cloud.hpp>
 
 #include <signal.h>
 #include <stdlib.h>
 #include <iostream>
+#include <fstream>
 #include <algorithm>
 #include <fstream>
 #include <chrono>
@@ -47,6 +49,19 @@ class MonoRealSense : public rclcpp::Node
       settings_file_path(std::string(PROJECT_PATH) + "/orb_slam3/config/Monocular/RealSense_D435i.yaml"),
       timestamp(0.0)
     {
+      // add a parameter to the RealSense .yaml file that tells it where to save the map .aso file
+      std::ofstream settings_file(settings_file_path, std::ios::app);
+
+      // if (settings_file.is_open())
+      // {
+      //   settings_file << "System.SaveAtlasToFile: " << std::string(PROJECT_PATH) + "/maps/" << std::endl;
+      //   settings_file.close();
+      // }
+      // else
+      // {
+      //   RCLCPP_ERROR(get_logger(), "Could not open settings file, map will not be saved");
+      // }
+
       // declare parameters
       declare_parameter("sensor_type", "monocular");
       declare_parameter("use_pangolin", true);
@@ -130,16 +145,37 @@ class MonoRealSense : public rclcpp::Node
       // RCLCPP_INFO_STREAM(get_logger(), "Pose: " << Tcw.matrix());
     }
 
+    void save_map_to_csv(vector<ORB_SLAM3::MapPoint*> map_points)
+    {
+      std::ofstream map_file;
+      // add date and time to the map file name
+      std::time_t now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+      std::string time_string = std::ctime(&now);
+      time_string = time_string.substr(0, time_string.length() - 1);
+      std::string map_file_name = std::string(PROJECT_PATH) + "/maps/" + video_name.substr(0, video_name.length() - 4) + "_" + time_string + "_map" + ".csv";
+      map_file.open(map_file_name);
+      if(map_file.is_open())
+      {
+        for (auto &map_point : map_points)
+        {
+          Eigen::Vector3f pos = map_point->GetWorldPos();
+          map_file << pos[0] << "," << pos[1] << "," << pos[2] << std::endl;
+        }
+        map_file.close();
+      }
+      else
+      {
+        RCLCPP_ERROR(get_logger(), "Could not open map file for writing");
+      }
+    }
+
     void timer_callback()
     {
       cv::Mat frame;
       input_video >> frame;
       if (!frame.empty()) {
         if(image_scale != 1.f) {
-          // std::chrono::steady_clock::time_point t_Start_Resize = std::chrono::steady_clock::now();
           cv::resize(frame, frame, cv::Size(frame.cols*image_scale, frame.rows*image_scale));
-          // std::chrono::steady_clock::time_point t_End_Resize = std::chrono::steady_clock::now();
-          // double t_resize = std::chrono::duration_cast<std::chrono::duration<double,std::milli>>(t_End_Resize - t_Start_Resize).count();
         }
 
         Sophus::SE3f Tcw = pAgent->TrackMonocular(frame, timestamp);//, vImuMeas);
@@ -148,6 +184,19 @@ class MonoRealSense : public rclcpp::Node
         timestamp += 1.0/30.0;
       } else {
         RCLCPP_INFO_STREAM_ONCE(get_logger(), "End of video file");
+        vector<ORB_SLAM3::MapPoint*>map_points = pAgent->GetAllMapPoints();
+        save_map_to_csv(map_points);
+        // sensor_msgs::msg::PointCloud map_cloud;
+        // for (auto &map_point : map_points)
+        // {
+        //   Eigen::Vector3f pos = map_point->GetWorldPos();
+        //   geometry_msgs::msg::Point32 point; 
+        //   point.x = pos[0];
+        //   point.y = pos[1];
+        //   point.z = pos[2];
+        //   map_cloud.points.push_back(point);
+        // }
+        pAgent->Shutdown();
         rclcpp::shutdown();
       }
     }
