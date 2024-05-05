@@ -41,6 +41,13 @@ To do this, run the following command:
 $ ros2 launch ros2_orb_slam3 mapping.launch.xml use_live_feed:=true
 ```
 
+You can visualize maps you've saved in rviz with:
+```bash
+$ ros2 launch ros2_orb_slam3 visualize_point_cloud.launch.xml
+```
+**you must provide file names for most of these commands to work, especially
+mapping.launch.xml and visualize_pointcloud.launch.xml**
+
 This package is in progress, though every command above should work right now.
 You can check on upcoming features and current progress by viewing the github
 project for this package: https://github.com/users/gjcliff/projects/3

@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.8)
 project(ros2_orb_slam3)
 
 # Make sure to set this path before building the  
-set(ENV{PYTHONPATH} "/opt/ros/humble/lib/python3.10/site-packages/") # Must be set to match your installation
+# set(ENV{PYTHONPATH} "/opt/ros/humble/lib/python3.10/site-packages/") # Must be set to match your installation
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Must use C++17 to make it compatible with rclcpp
@@ -13,15 +13,20 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -O3")
 include(CheckCXXCompilerFlag)
 CHECK_CXX_COMPILER_FLAG("-std=c++17" COMPILER_SUPPORTS_CXX17)
 
-if(COMPILER_SUPPORTS_CXX17)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17")
-  add_definitions(-DCOMPILEDWITHC17)
-  message(STATUS "Using flag -std=c++17.")
-else()
-  message(FATAL_ERROR "The compiler ${CMAKE_CXX_COMPILER} has no C++17 support. Please use a different C++ compiler.")
+if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-reorder")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -w -Werror")
 endif()
 
-LIST(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake_modules) # REDUNDANT?
+# if(COMPILER_SUPPORTS_CXX17)
+#   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17")
+#   add_definitions(-DCOMPILEDWITHC17)
+#   message(STATUS "Using flag -std=c++17.")
+# else()
+#   message(FATAL_ERROR "The compiler ${CMAKE_CXX_COMPILER} has no C++17 support. Please use a different C++ compiler.")
+# endif()
+
+# LIST(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake_modules) # REDUNDANT?
 
 set(project_path ${CMAKE_CURRENT_SOURCE_DIR})
 set(ENV{PROJECT_PATH} "${project_path}")
@@ -34,6 +39,8 @@ find_package(rclcpp REQUIRED)
 find_package(rclpy REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_ros REQUIRED)
 # find_package(your_custom_msg_interface REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(OpenCV 4.2 REQUIRED)
@@ -66,6 +73,8 @@ set(THIS_PACKAGE_INCLUDE_DEPENDS
   rclpy
   std_msgs
   sensor_msgs
+  tf2
+  tf2_ros
   # your_custom_msg_interface
   cv_bridge
   image_transport
