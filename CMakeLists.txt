@@ -13,6 +13,10 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -O3")
 include(CheckCXXCompilerFlag)
 CHECK_CXX_COMPILER_FLAG("-std=c++17" COMPILER_SUPPORTS_CXX17)
 
+if(NOT CMAKE_BUILD_TYPE)        # If no build type is set, set one
+  set(CMAKE_BUILD_TYPE "Debug" CACHE STRING "Type of build." FORCE)
+endif()
+
 if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-reorder")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -w -Werror")
@@ -43,7 +47,9 @@ find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(octomap_server REQUIRED)
 find_package(nav_msgs REQUIRED)
-# find_package(your_custom_msg_interface REQUIRED)
+find_package(apriltag REQUIRED)
+find_package(apriltag_ros REQUIRED)
+find_package(apriltag_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(OpenCV 4.2 REQUIRED)
 find_package(Eigen3 3.3.0 REQUIRED) # Matched with Sophus
@@ -79,7 +85,9 @@ set(THIS_PACKAGE_INCLUDE_DEPENDS
   tf2_ros
   octomap_server
   nav_msgs
-  # your_custom_msg_interface
+  apriltag
+  apriltag_ros
+  apriltag_msgs
   cv_bridge
   image_transport
   OpenCV
@@ -189,6 +197,10 @@ add_executable(mono_node_cpp
   src/mono_realsense.cpp
 )
 
+add_executable(imu_mono_node_cpp
+  src/imu_mono_realsense.cpp
+)
+
 add_executable(capture_video
     src/capture_realsense_video.cpp
 )
@@ -197,11 +209,19 @@ add_executable(visualize_point_cloud
     src/visualize_point_cloud.cpp
 )
 
+add_executable(apriltag_node
+    src/apriltag_node.cpp
+)
+
 ament_target_dependencies(example_mono_node_cpp
   PUBLIC ${THIS_PACKAGE_INCLUDE_DEPENDS}
 )
 
 ament_target_dependencies(mono_node_cpp
+  PUBLIC ${THIS_PACKAGE_INCLUDE_DEPENDS}
+)
+
+ament_target_dependencies(imu_mono_node_cpp
   PUBLIC ${THIS_PACKAGE_INCLUDE_DEPENDS}
 )
 
@@ -213,18 +233,30 @@ ament_target_dependencies(visualize_point_cloud
   PUBLIC ${THIS_PACKAGE_INCLUDE_DEPENDS}
 )
 
+ament_target_dependencies(apriltag_node
+  PUBLIC ${THIS_PACKAGE_INCLUDE_DEPENDS}
+)
+
 target_link_libraries(mono_node_cpp PUBLIC orb_slam3_lib) # Link a node with the internal shared library
+target_link_libraries(imu_mono_node_cpp PUBLIC orb_slam3_lib) # Link a node with the internal shared library
 target_link_libraries(example_mono_node_cpp PUBLIC orb_slam3_lib) # Link a node with the internal shared library
+target_link_libraries(apriltag_node PUBLIC apriltag::apriltag)
 
 # Install all the header files in package/package/include
 install (DIRECTORY include/ 
         DESTINATION include
 )
 
-# install video files
+# install bag files
 install(
-  DIRECTORY rviz/
-  DESTINATION share/${PROJECT_NAME}/rviz
+  DIRECTORY bags/
+  DESTINATION share/${PROJECT_NAME}/bags
+)
+
+# install config files
+install(
+  DIRECTORY config/
+  DESTINATION share/${PROJECT_NAME}/config
 )
 
 # install video files
@@ -245,11 +277,11 @@ install(
 )
 
 # Install our node and library
-install(TARGETS visualize_point_cloud capture_video mono_node_cpp example_mono_node_cpp orb_slam3_lib
+install(TARGETS apriltag_node visualize_point_cloud capture_video mono_node_cpp imu_mono_node_cpp example_mono_node_cpp orb_slam3_lib
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION lib/${PROJECT_NAME}
-  INCLUDES DESTINATION include/${PROJECT_NAME}
+  INCLUDES DESTINATION include/${PROJECT_NAME} ${CMAKE_INSTALL_INCLUDEDIR}
 )
 
 # Tell downstream packages where to find the headers

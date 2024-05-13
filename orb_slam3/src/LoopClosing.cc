@@ -982,7 +982,8 @@ void LoopClosing::CorrectLoop()
         unique_lock<mutex> lock(mMutexGBA);
         mbStopGBA = true;
 
-        mnFullBAIdx++; //* 01/01/2024 this line throws error use of an operand of type ‘bool’ in ‘operator++’ is forbidden in C++17
+        // mnFullBAIdx++; //* 01/01/2024 this line throws error use of an operand of type ‘bool’ in ‘operator++’ is forbidden in C++17
+        mnFullBAIdx == 0 ? mnFullBAIdx = 1 : mnFullBAIdx = 0;
         
         if(mpThreadGBA)
         {
@@ -1233,7 +1234,8 @@ void LoopClosing::MergeLocal()
         unique_lock<mutex> lock(mMutexGBA);
         mbStopGBA = true;
 
-        mnFullBAIdx++;
+        // mnFullBAIdx++;
+        mnFullBAIdx == 0 ? mnFullBAIdx = 1: mnFullBAIdx = 0;
 
         if(mpThreadGBA)
         {
@@ -1806,7 +1808,8 @@ void LoopClosing::MergeLocal2()
         unique_lock<mutex> lock(mMutexGBA);
         mbStopGBA = true;
 
-        mnFullBAIdx++;
+        // mnFullBAIdx++;
+        mnFullBAIdx == 0 ? mnFullBAIdx = 1 : mnFullBAIdx = 0;
 
         if(mpThreadGBA)
         {

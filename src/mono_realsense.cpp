@@ -13,6 +13,7 @@
 #include <chrono>
 #include <ctime>
 #include <sstream>
+#include <csignal>
 
 #include <condition_variable>
 
@@ -24,7 +25,6 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/highgui.hpp>
 #include <opencv2/core/eigen.hpp>
-#include <image_transport/image_transport.hpp>
 
 // this is orb_slam3
 #include "System.h"
@@ -33,9 +33,6 @@
 
 using namespace std::chrono_literals;
 using std::placeholders::_1;
-
-/* This example creates a subclass of Node and uses std::bind() to register a
-* member function as a callback from the timer. */
 
 class MonoRealSense : public rclcpp::Node
 {
@@ -54,7 +51,7 @@ class MonoRealSense : public rclcpp::Node
       declare_parameter("sensor_type", "monocular");
       declare_parameter("use_pangolin", true);
       declare_parameter("use_live_feed", false);
-      declare_parameter("video_name", "graham_apt.mp4");
+      declare_parameter("video_name", "output.mp4");
 
       // get parameters
       std::string sensor_type_param = get_parameter("sensor_type").as_string();
@@ -119,21 +116,48 @@ class MonoRealSense : public rclcpp::Node
       timer = create_wall_timer(1s/30, std::bind(&MonoRealSense::timer_callback, this));
     }
 
+    ~MonoRealSense()
+    {
+      if (use_live_feed) {
+        vector<ORB_SLAM3::MapPoint*>map_points = pAgent->GetTrackedMapPoints();
+        save_map_to_csv(map_points);
+      }
+    }
+
   private:
     void image_callback(const sensor_msgs::msg::Image::SharedPtr msg)
     {
       // change mono8 to something more? maybe orb_slam3 expects something else not sure
       auto cv_ptr = cv_bridge::toCvShare(msg, sensor_msgs::image_encodings::MONO8);
-      double timestamp = msg->header.stamp.sec + msg->header.stamp.nanosec * 1e-9;
 
-      cv::imshow("image", cv_ptr->image);
+      cv::Mat frame = cv_ptr->image;
+      cv::imshow("image", frame);
       cv::waitKey(1);
-      ORB_SLAM3::IMU::Point imu_data(imu_msg.linear_acceleration.x, imu_msg.linear_acceleration.y, imu_msg.linear_acceleration.z,
-          imu_msg.angular_velocity.x, imu_msg.angular_velocity.y, imu_msg.angular_velocity.z, timestamp);
-      const vector<ORB_SLAM3::IMU::Point> vImuMeas = {imu_data};
-      pAgent->TrackMonocular(cv_ptr->image, timestamp, vImuMeas);
-      vector<ORB_SLAM3::MapPoint*>map_points = pAgent->GetAllMapPoints();
-      // RCLCPP_INFO_STREAM(get_logger(), "Pose: " << Tcw.matrix());
+      if(image_scale != 1.f) {
+        cv::resize(frame, frame, cv::Size(frame.cols*image_scale, frame.rows*image_scale));
+      }
+
+      Sophus::SE3f Tcw = pAgent->TrackMonocular(frame, timestamp);//, vImuMeas);
+      std::string line;
+      std::getline(imu_file, line);
+      if (!Tcw.matrix().isIdentity() && count == 0)
+      {
+        std::istringstream ss(line);
+        std::string token;
+        std::vector<float> imu_data;
+        while(std::getline(ss, token, ','))
+        {
+          imu_data.push_back(std::stof(token));
+        }
+        initial_orientation.x = imu_data[0];
+        initial_orientation.y = imu_data[1];
+        initial_orientation.z = imu_data[2];
+        initial_orientation.w = imu_data[3];
+        count++;
+      }
+      cv::imshow("frame", frame);
+      cv::waitKey(1);
+      timestamp += 1.0/30.0;
     }
 
     void save_map_to_csv(vector<ORB_SLAM3::MapPoint*> map_points)
@@ -196,7 +220,7 @@ class MonoRealSense : public rclcpp::Node
         timestamp += 1.0/30.0;
       } else {
         RCLCPP_INFO_STREAM_ONCE(get_logger(), "End of video file");
-        vector<ORB_SLAM3::MapPoint*>map_points = pAgent->GetAllMapPoints();
+        vector<ORB_SLAM3::MapPoint*>map_points = pAgent->GetTrackedMapPoints();
         save_map_to_csv(map_points);
         pAgent->Shutdown();
         rclcpp::shutdown();

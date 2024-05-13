@@ -83,7 +83,7 @@ class CaptureVideo : public rclcpp::Node
       imu_data.w = q.w();
 
       RCLCPP_INFO_STREAM(get_logger(), "imu_data: " << imu_data.x << ", " << imu_data.y << ", " << imu_data.z << ", " << imu_data.w);
-      imu_file << imu_data.x << ", " << imu_data.y << ", " << imu_data.z << ", " << imu_data.w << std::endl;
+      imu_file << imu_data.x << ", " << imu_data.y << ", " << imu_data.z << ", " << imu_data.w << std::to_string(msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9) << std::endl;
     }
     void image_callback(const sensor_msgs::msg::Image::SharedPtr msg)
     {
