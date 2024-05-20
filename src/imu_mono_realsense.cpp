@@ -40,7 +40,8 @@ class ImuMonoRealSense : public rclcpp::Node
     ImuMonoRealSense()
     : Node("imu_mono_realsense"),
       vocabulary_file_path(std::string(PROJECT_PATH)+ "/orb_slam3/Vocabulary/ORBvoc.txt.bin"),
-      count(0)
+      count(0),
+      count2(0)
     {
 
       // declare parameters
@@ -134,7 +135,7 @@ class ImuMonoRealSense : public rclcpp::Node
       // create publishers
 
       // create timer
-      image_timer = create_wall_timer(1s/30, std::bind(&ImuMonoRealSense::image_timer_callback, this));
+      image_timer = create_wall_timer(1s/30, std::bind(&ImuMonoRealSense::image_timer_callback, this), image_timer_callback_group);
       imu_timer = create_wall_timer(1s/200, std::bind(&ImuMonoRealSense::imu_timer_callback, this));
     }
 
@@ -219,11 +220,12 @@ class ImuMonoRealSense : public rclcpp::Node
           msg.angular_velocity.x, msg.angular_velocity.y, msg.angular_velocity.z,
           msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9);
       vImuMeas.push_back(imu_meas);
+
+
     }
 
     void image_timer_callback()
     {
-      RCLCPP_INFO(get_logger(), "image timer callback");
       if (!use_live_feed) {
         cv::Mat frame;
         input_video >> frame;
@@ -237,6 +239,9 @@ class ImuMonoRealSense : public rclcpp::Node
         while(std::getline(ss, token, ',')) {
           timestamp_data.push_back(std::stof(token));
         }
+
+        timestamp = timestamp_data[0] + timestamp_data[1] * 1e-9;
+        RCLCPP_INFO_STREAM(get_logger(), "image timestamp: " << timestamp);
 
         if (!frame.empty()) {
           if(image_scale != 1.f) {
@@ -274,13 +279,52 @@ class ImuMonoRealSense : public rclcpp::Node
         std::getline(imu_file, imu_line);
         std::istringstream ss(imu_line);
         std::string token;
-        std::vector<float> imu_data;
+        std::vector<double> imu_data;
         while(std::getline(ss, token, ',')) {
-          imu_data.push_back(std::stof(token));
+          imu_data.push_back(std::stod(token));
         }
         ORB_SLAM3::IMU::Point imu_meas(imu_data[0], imu_data[1], imu_data[2],
             imu_data[3], imu_data[4], imu_data[5], imu_data[6]);
+        RCLCPP_INFO_STREAM(get_logger(), "imu timestamp: " << std::fixed << std::setprecision(9) << imu_data[6] << std::endl);
         vImuMeas.push_back(imu_meas);
+
+
+        if (count2 >= 200/30) {
+          count2 = 0;
+          if (!use_live_feed) {
+            cv::Mat frame;
+            input_video >> frame;
+            auto ros_image = cv_bridge::CvImage(std_msgs::msg::Header(), "mono8", frame).toImageMsg();
+
+            std::string timestamp_line;
+            std::getline(video_timestamp_file, timestamp_line);
+            timestamp = std::stod(timestamp_line);
+            RCLCPP_INFO_STREAM(get_logger(), "image timestamp: " << std::fixed << std::setprecision(9)<< timestamp);
+
+            if (!frame.empty()) {
+              if(image_scale != 1.f) {
+                cv::resize(frame, frame, cv::Size(frame.cols*image_scale, frame.rows*image_scale));
+              }
+
+              if (sensor_type_param == "monocular") {
+                Sophus::SE3f Tcw = pAgent->TrackMonocular(frame, timestamp);
+              } else if (sensor_type_param == "imu-monocular"){
+                Sophus::SE3f Tcw = pAgent->TrackMonocular(frame, timestamp, vImuMeas);
+              }
+              count ++;
+
+              cv::imshow("frame", frame);
+              cv::waitKey(1);
+            } else {
+              RCLCPP_INFO_STREAM_ONCE(get_logger(), "End of video file");
+              vector<ORB_SLAM3::MapPoint*>map_points = pAgent->GetTrackedMapPoints();
+              save_map_to_csv(map_points);
+              pAgent->Shutdown();
+              rclcpp::shutdown();
+            }
+          }
+        }
+        count2++;
       }
     }
 
@@ -314,6 +358,7 @@ class ImuMonoRealSense : public rclcpp::Node
 
     std::shared_ptr<ORB_SLAM3::IMU::Point> initial_orientation;
     int count;
+    int count2;
 };
 
 int main(int argc, char * argv[])

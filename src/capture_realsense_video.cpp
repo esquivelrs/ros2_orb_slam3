@@ -86,16 +86,17 @@ class CaptureVideo : public rclcpp::Node
       tf2::Quaternion q;
       q.setRPY(roll, pitch, yaw);
 
-      imu_file << msg.linear_acceleration.x << ", " << msg.linear_acceleration.y <<
+      timestamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9;
+      imu_file << std::fixed << std::setprecision(9) << msg.linear_acceleration.x << ", " << msg.linear_acceleration.y << ", " <<
         msg.linear_acceleration.z << ", " << msg.angular_velocity.x << ", " <<
-        msg.angular_velocity.y << ", " << msg.angular_velocity.z << ", " << msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9 << std::endl;
+        msg.angular_velocity.y << ", " << msg.angular_velocity.z << ", " << timestamp << std::endl;
     }
     void image_callback(const sensor_msgs::msg::Image::SharedPtr msg)
     {
       auto cv_ptr = cv_bridge::toCvShare(msg, sensor_msgs::image_encodings::MONO8);
       output_video << cv_ptr->image;
 
-      image_timestamp_file << std::to_string(msg->header.stamp.sec + msg->header.stamp.nanosec * 1e-9) << std::endl;
+      image_timestamp_file << std::fixed << std::setprecision(9) << timestamp << std::endl;
 
       cv::imshow("image", cv_ptr->image);
       cv::waitKey(1);
@@ -107,6 +108,7 @@ class CaptureVideo : public rclcpp::Node
     std::ofstream imu_file;
     std::ofstream image_timestamp_file;
     std::string time_string;
+    double timestamp;
 };
 
 int main(int argc, char * argv[])

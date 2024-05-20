@@ -182,15 +182,15 @@ class VisualizePointCloud : public rclcpp::Node
       }
 
       // now i can filter the pointcloud
-      // pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
-      // pcl::fromROSMsg(point_cloud2, *cloud);
-      // pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered(new pcl::PointCloud<pcl::PointXYZ>);
-      // pcl::StatisticalOutlierRemoval<pcl::PointXYZ> sor;
-      // sor.setInputCloud(cloud);
-      // sor.setMeanK(50);
-      // sor.setStddevMulThresh(1.0);
-      // sor.filter(*cloud_filtered);
-      // pcl::toROSMsg(*cloud_filtered, point_cloud2);
+      pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
+      pcl::fromROSMsg(point_cloud2, *cloud);
+      pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered(new pcl::PointCloud<pcl::PointXYZ>);
+      pcl::StatisticalOutlierRemoval<pcl::PointXYZ> sor;
+      sor.setInputCloud(cloud);
+      sor.setMeanK(75);
+      sor.setStddevMulThresh(1.0);
+      sor.filter(*cloud_filtered);
+      pcl::toROSMsg(*cloud_filtered, point_cloud2);
 
     }
     void timer_callback()
