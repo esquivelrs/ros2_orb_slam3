@@ -40,11 +40,21 @@ class CaptureVideo : public rclcpp::Node
       time_string = ss.str();
 
       // get the video file ready and open it
-      std::string file_name = static_cast<std::string>(PROJECT_PATH) + "/videos/"+ time_string + "_" + video_name;
+      std::string file_name = std::string(PROJECT_PATH) + "/videos/"+ time_string + "_" + video_name;
       output_video.open(file_name, cv::VideoWriter::fourcc('m', 'p', '4', 'v'), 30, cv::Size(1280, 720), false);
       if (!output_video.isOpened())
       {
         RCLCPP_ERROR(get_logger(), "Could not open video file for writing");
+        rclcpp::shutdown();
+      }
+
+      // create file for holding image timestamps
+      std::string image_timestamp_file_name = std::string(PROJECT_PATH) +
+        "/videos/" + time_string + "_" + video_name.substr(0, video_name.length() - 4) + "_timestamps.csv";
+      image_timestamp_file.open(image_timestamp_file_name);
+      if (!image_timestamp_file.is_open())
+      {
+        RCLCPP_ERROR(get_logger(), "Could not open image timestamp file for writing");
         rclcpp::shutdown();
       }
 
@@ -76,19 +86,16 @@ class CaptureVideo : public rclcpp::Node
       tf2::Quaternion q;
       q.setRPY(roll, pitch, yaw);
 
-      geometry_msgs::msg::Quaternion imu_data;
-      imu_data.x = q.x();
-      imu_data.y = q.y();
-      imu_data.z = q.z();
-      imu_data.w = q.w();
-
-      RCLCPP_INFO_STREAM(get_logger(), "imu_data: " << imu_data.x << ", " << imu_data.y << ", " << imu_data.z << ", " << imu_data.w);
-      imu_file << imu_data.x << ", " << imu_data.y << ", " << imu_data.z << ", " << imu_data.w << std::to_string(msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9) << std::endl;
+      imu_file << msg.linear_acceleration.x << ", " << msg.linear_acceleration.y <<
+        msg.linear_acceleration.z << ", " << msg.angular_velocity.x << ", " <<
+        msg.angular_velocity.y << ", " << msg.angular_velocity.z << ", " << msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9 << std::endl;
     }
     void image_callback(const sensor_msgs::msg::Image::SharedPtr msg)
     {
       auto cv_ptr = cv_bridge::toCvShare(msg, sensor_msgs::image_encodings::MONO8);
       output_video << cv_ptr->image;
+
+      image_timestamp_file << std::to_string(msg->header.stamp.sec + msg->header.stamp.nanosec * 1e-9) << std::endl;
 
       cv::imshow("image", cv_ptr->image);
       cv::waitKey(1);
@@ -98,6 +105,7 @@ class CaptureVideo : public rclcpp::Node
     std::string video_name;
     cv::VideoWriter output_video;
     std::ofstream imu_file;
+    std::ofstream image_timestamp_file;
     std::string time_string;
 };
 

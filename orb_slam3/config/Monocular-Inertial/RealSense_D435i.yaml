@@ -40,7 +40,7 @@ IMU.T_b_c1: !!opencv-matrix
          0.0, 0.0, 0.0, 1.0]
 
 # Do not insert KFs when recently lost
-IMU.InsertKFsWhenLost: 0
+IMU.InsertKFsWhenLost: 1
 
 # IMU noise (Use those from VINS-mono)
 IMU.NoiseGyro: 1e-3 # 2.44e-4 #1e-3 # rad/s^0.5

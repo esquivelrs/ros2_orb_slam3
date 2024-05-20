@@ -1,6 +1,7 @@
 #include <chrono>
 #include <functional>
 #include <memory>
+#include <pcl/filters/statistical_outlier_removal.h>
 #include <sensor_msgs/msg/detail/point_field__struct.hpp>
 #include <string>
 #include <fstream>
@@ -13,6 +14,10 @@
 #include <sensor_msgs/msg/point_field.hpp>
 #include <geometry_msgs/msg/point32.hpp>
 #include <geometry_msgs/msg/quaternion.hpp>
+
+#include <pcl_conversions/pcl_conversions.h>
+#include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
 
 #include "tf2/LinearMath/Quaternion.h"
 #include "tf2_ros/transform_broadcaster.h"
@@ -161,22 +166,6 @@ class VisualizePointCloud : public rclcpp::Node
       point_cloud2.fields.push_back(x_field); 
       point_cloud2.fields.push_back(y_field);
       point_cloud2.fields.push_back(z_field);
-      // point_cloud2.fields.push_back(intensity_field);
-
-      // point_cloud2.height = 1;
-      // point_cloud2.width = point_cloud.points.size();
-      // point_cloud2.point_step = 16;
-      // point_cloud2.row_step = 16 * point_cloud.points.size();
-      // point_cloud2.is_dense = true;
-      // point_cloud2.is_bigendian = false;
-      // point_cloud2.data.resize(point_cloud2.row_step);
-      // for (int i = 0; i < point_cloud.points.size(); i++)
-      // {
-      //   memcpy(&point_cloud2.data[i * 16], &point_cloud.points[i].x, 4);
-      //   memcpy(&point_cloud2.data[i * 16 + 4], &point_cloud.points[i].y, 4);
-      //   memcpy(&point_cloud2.data[i * 16 + 8], &point_cloud.points[i].z, 4);
-      //   memcpy(&point_cloud2.data[i * 16 + 12], &point_cloud.channels[0].values[i], 4);
-      // }
 
       point_cloud2.height = 1;
       point_cloud2.width = point_cloud.points.size();
@@ -191,6 +180,17 @@ class VisualizePointCloud : public rclcpp::Node
         memcpy(&point_cloud2.data[i * 12 + 4], &point_cloud.points[i].y, 4);
         memcpy(&point_cloud2.data[i * 12 + 8], &point_cloud.points[i].z, 4);
       }
+
+      // now i can filter the pointcloud
+      // pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
+      // pcl::fromROSMsg(point_cloud2, *cloud);
+      // pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered(new pcl::PointCloud<pcl::PointXYZ>);
+      // pcl::StatisticalOutlierRemoval<pcl::PointXYZ> sor;
+      // sor.setInputCloud(cloud);
+      // sor.setMeanK(50);
+      // sor.setStddevMulThresh(1.0);
+      // sor.filter(*cloud_filtered);
+      // pcl::toROSMsg(*cloud_filtered, point_cloud2);
 
     }
     void timer_callback()

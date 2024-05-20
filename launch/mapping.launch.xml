@@ -22,5 +22,5 @@
         <param name="use_live_feed" value="$(var use_live_feed)"/>
         <param name="video_name" value="$(var file_name)"/>
     </node>
-    <executable cmd="ros2 bag play $(find-pkg-share ros2_orb_slam3)/bags/$(var bag_name)" if="$(eval '\'$(var bag_name)\' == \'nothing\'')"/>
+    <!-- <executable cmd="ros2 bag play $(find-pkg-share ros2_orb_slam3)/bags/$(var bag_name)" if="$(eval '\'$(var bag_name)\' == \'nothing\'')"/> -->
 </launch>

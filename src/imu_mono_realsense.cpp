@@ -38,13 +38,10 @@ class ImuMonoRealSense : public rclcpp::Node
 {
   public:
     ImuMonoRealSense()
-    : Node("imumonorealsense"),
+    : Node("imu_mono_realsense"),
       vocabulary_file_path(std::string(PROJECT_PATH)+ "/orb_slam3/Vocabulary/ORBvoc.txt.bin"),
-      timestamp(0.0),
       count(0)
     {
-      // add a parameter to the RealSense .yaml file that tells it where to save the map .aso file
-      std::ofstream settings_file(settings_file_path, std::ios::app);
 
       // declare parameters
       declare_parameter("sensor_type", "imu-monocular");
@@ -53,7 +50,7 @@ class ImuMonoRealSense : public rclcpp::Node
       declare_parameter("video_name", "output.mp4");
 
       // get parameters
-      std::string sensor_type_param = get_parameter("sensor_type").as_string();
+      sensor_type_param = get_parameter("sensor_type").as_string();
       bool use_pangolin = get_parameter("use_pangolin").as_bool();
       use_live_feed = get_parameter("use_live_feed").as_bool();
       video_name = get_parameter("video_name").as_string();
@@ -61,6 +58,8 @@ class ImuMonoRealSense : public rclcpp::Node
       // define callback groups
       auto image_callback_group = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
       auto imu_callback_group = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+      auto image_timer_callback_group = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+      auto imu_timer_callback_group = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
 
       rclcpp::SubscriptionOptions image_options;
       image_options.callback_group = image_callback_group;
@@ -83,6 +82,40 @@ class ImuMonoRealSense : public rclcpp::Node
         rclcpp::shutdown();
       }
 
+      // open the video and imu files
+      std::string imu_file_name = std::string(PROJECT_PATH) + "/videos/" + video_name.substr(0, video_name.length() - 4) + ".csv";
+      if (use_live_feed)
+      {
+        // dont open anything
+        input_video.open(0);
+      }
+      else
+      {
+        // open the imu file
+        imu_file.open(imu_file_name);
+
+        // open the timestamp file
+        std::string timestamp_file_name = std::string(PROJECT_PATH) + "/videos/" + video_name.substr(0, video_name.length() - 4) + "_timestamps.csv";
+        video_timestamp_file.open(timestamp_file_name);
+
+        // open video file
+        input_video.open(std::string(PROJECT_PATH) + "/videos/" + video_name);
+      }
+
+      if (!input_video.isOpened() && !use_live_feed)
+      {
+        RCLCPP_ERROR(get_logger(), "Could not open video file for reading");
+      } else {
+        RCLCPP_INFO(get_logger(), "Opened video file for reading");
+      }
+
+      if (!imu_file.is_open() && !use_live_feed)
+      {
+        RCLCPP_ERROR_STREAM(get_logger(), "Could not open imu file for reading: " << imu_file_name);
+      } else {
+        RCLCPP_INFO(get_logger(), "Opened imu file for reading");
+      }
+
       // setup orb slam object
       pAgent = std::make_shared<ORB_SLAM3::System>(vocabulary_file_path, 
           settings_file_path,
@@ -97,6 +130,12 @@ class ImuMonoRealSense : public rclcpp::Node
 
       imu_sub = create_subscription<sensor_msgs::msg::Imu>(
           "camera/imu", 10, std::bind(&ImuMonoRealSense::imu_callback, this, _1), imu_options);
+
+      // create publishers
+
+      // create timer
+      image_timer = create_wall_timer(1s/30, std::bind(&ImuMonoRealSense::image_timer_callback, this));
+      imu_timer = create_wall_timer(1s/200, std::bind(&ImuMonoRealSense::imu_timer_callback, this));
     }
 
     ~ImuMonoRealSense()
@@ -109,6 +148,38 @@ class ImuMonoRealSense : public rclcpp::Node
     }
 
   private:
+
+    void save_map_to_csv(vector<ORB_SLAM3::MapPoint*> map_points)
+    {
+      std::ofstream map_file;
+      // add date and time to the map file name
+      std::string time_string;
+      if(use_live_feed) {
+        std::time_t now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+        time_string = std::ctime(&now);
+        time_string = time_string.substr(0, time_string.length() - 1) + "_";
+      }
+      std::string map_file_name = std::string(PROJECT_PATH) + "/maps/" + video_name.substr(0, video_name.length() - 4) + "_" + time_string + "map" + ".csv";
+      map_file.open(map_file_name);
+      if(map_file.is_open())
+      {
+        // map_file << initial_orientation->a[0] << "," << initial_orientation->a[1]
+        //   << "," << initial_orientation->a[2] << "," << initial_orientation->w[0]
+        //   << "," << initial_orientation->w[1] << "," << initial_orientation->w[2]
+        //   << std::endl;
+        for (auto &map_point : map_points)
+        {
+          Eigen::Vector3f pos = map_point->GetWorldPos();
+          map_file << pos[0] << "," << pos[1] << "," << pos[2] << std::endl;
+        }
+        map_file.close();
+      }
+      else
+      {
+        RCLCPP_ERROR(get_logger(), "Could not open map file for writing");
+      }
+    }
+
     void image_callback(const sensor_msgs::msg::Image::SharedPtr msg)
     {
       auto cv_ptr = cv_bridge::toCvShare(msg, sensor_msgs::image_encodings::MONO8);
@@ -124,8 +195,12 @@ class ImuMonoRealSense : public rclcpp::Node
 
       Sophus::SE3f Tcw = pAgent->TrackMonocular(frame, timestamp, vImuMeas);
 
-      RCLCPP_INFO_STREAM(get_logger(), "Tcw: " << Tcw.matrix());
-
+      // if (!Tcw.matrix().isIdentity() && count == 0)
+      // {
+      //   RCLCPP_INFO(get_logger(), "initial orientation set");
+      //   *initial_orientation = vImuMeas.back();
+      //   count++;
+      // }
       count++;
 
       if (!Tcw.matrix().isIdentity())
@@ -146,41 +221,84 @@ class ImuMonoRealSense : public rclcpp::Node
       vImuMeas.push_back(imu_meas);
     }
 
-    void save_map_to_csv(vector<ORB_SLAM3::MapPoint*> map_points)
+    void image_timer_callback()
     {
-      std::ofstream map_file;
-      // add date and time to the map file name
-      std::string time_string;
-      if(use_live_feed) {
-        std::time_t now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-        time_string = std::ctime(&now);
-        time_string = time_string.substr(0, time_string.length() - 1) + "_";
-      }
-      std::string map_file_name = std::string(PROJECT_PATH) + "/maps/" + video_name.substr(0, video_name.length() - 4) + "_" + time_string + "map" + ".csv";
-      map_file.open(map_file_name);
-      if(map_file.is_open())
-      {
-        map_file << initial_orientation.x << "," << initial_orientation.y << "," << initial_orientation.z << "," << initial_orientation.w << std::endl;
-        for (auto &map_point : map_points)
-        {
-          Eigen::Vector3f pos = map_point->GetWorldPos();
-          map_file << pos[0] << "," << pos[1] << "," << pos[2] << std::endl;
+      RCLCPP_INFO(get_logger(), "image timer callback");
+      if (!use_live_feed) {
+        cv::Mat frame;
+        input_video >> frame;
+        auto ros_image = cv_bridge::CvImage(std_msgs::msg::Header(), "mono8", frame).toImageMsg();
+
+        std::string timestamp_line;
+        std::getline(video_timestamp_file, timestamp_line);
+        std::istringstream ss(timestamp_line);
+        std::string token;
+        std::vector<float> timestamp_data;
+        while(std::getline(ss, token, ',')) {
+          timestamp_data.push_back(std::stof(token));
         }
-        map_file.close();
+
+        if (!frame.empty()) {
+          if(image_scale != 1.f) {
+            cv::resize(frame, frame, cv::Size(frame.cols*image_scale, frame.rows*image_scale));
+          }
+
+          if (sensor_type_param == "monocular") {
+            Sophus::SE3f Tcw = pAgent->TrackMonocular(frame, timestamp);
+          } else if (sensor_type_param == "imu-monocular"){
+            Sophus::SE3f Tcw = pAgent->TrackMonocular(frame, timestamp, vImuMeas);
+          }
+          count ++;
+
+          cv::imshow("frame", frame);
+          cv::waitKey(1);
+        } else {
+          RCLCPP_INFO_STREAM_ONCE(get_logger(), "End of video file");
+          vector<ORB_SLAM3::MapPoint*>map_points = pAgent->GetTrackedMapPoints();
+          save_map_to_csv(map_points);
+          pAgent->Shutdown();
+          rclcpp::shutdown();
+        }
       }
-      else
-      {
-        RCLCPP_ERROR(get_logger(), "Could not open map file for writing");
+    }
+
+    void imu_timer_callback()
+    {
+      if (!use_live_feed && sensor_type_param == "imu-monocular") {
+        // if the a new frame has been processed, clear the imu data
+        if (count > 0) {
+          vImuMeas.clear();
+          count = 0;
+        }
+        std::string imu_line;
+        std::getline(imu_file, imu_line);
+        std::istringstream ss(imu_line);
+        std::string token;
+        std::vector<float> imu_data;
+        while(std::getline(ss, token, ',')) {
+          imu_data.push_back(std::stof(token));
+        }
+        ORB_SLAM3::IMU::Point imu_meas(imu_data[0], imu_data[1], imu_data[2],
+            imu_data[3], imu_data[4], imu_data[5], imu_data[6]);
+        vImuMeas.push_back(imu_meas);
       }
     }
 
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_sub;
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub;
+    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr image_pub;
+    rclcpp::TimerBase::SharedPtr image_timer;
+    rclcpp::TimerBase::SharedPtr imu_timer;
 
     sensor_msgs::msg::Imu imu_msg;
 
     bool use_live_feed;
     std::string video_name;
+    std::string sensor_type_param;
+
+    cv::VideoCapture input_video;
+    std::ifstream imu_file;
+    std::ifstream video_timestamp_file;
 
     std::vector<geometry_msgs::msg::Vector3> vGyro;
     std::vector<double> vGyro_times;
@@ -194,7 +312,7 @@ class ImuMonoRealSense : public rclcpp::Node
     float image_scale;
     double timestamp;
 
-    geometry_msgs::msg::Quaternion initial_orientation;
+    std::shared_ptr<ORB_SLAM3::IMU::Point> initial_orientation;
     int count;
 };
 

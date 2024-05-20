@@ -55,6 +55,8 @@ find_package(OpenCV 4.2 REQUIRED)
 find_package(Eigen3 3.3.0 REQUIRED) # Matched with Sophus
 find_package(Pangolin REQUIRED)
 find_package(image_transport REQUIRED)
+find_package(pcl_ros REQUIRED)
+find_package(pcl_conversions REQUIRED)
 
 
 # Header file locations [C++ node]
@@ -89,6 +91,8 @@ set(THIS_PACKAGE_INCLUDE_DEPENDS
   apriltag_ros
   apriltag_msgs
   cv_bridge
+  pcl_ros
+  pcl_conversions
   image_transport
   OpenCV
   Eigen3
