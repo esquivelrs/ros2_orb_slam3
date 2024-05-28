@@ -359,11 +359,7 @@ void Map::SetLastMapChange(int currentChangeId)
 void Map::PreSave(std::set<GeometricCamera*> &spCams)
 {
     int nMPWithoutObs = 0;
-
-    std::set<MapPoint*> tmp_mspMapPoints1;
-    tmp_mspMapPoints1.insert(mspMapPoints.begin(), mspMapPoints.end());
-
-    for(MapPoint* pMPi : tmp_mspMapPoints1)
+    for(MapPoint* pMPi : mspMapPoints)
     {
         if(!pMPi || pMPi->isBad())
             continue;
@@ -394,11 +390,7 @@ void Map::PreSave(std::set<GeometricCamera*> &spCams)
 
     // Backup of MapPoints
     mvpBackupMapPoints.clear();
-
-    std::set<MapPoint*> tmp_mspMapPoints2;
-    tmp_mspMapPoints2.insert(mspMapPoints.begin(), mspMapPoints.end());
-
-    for(MapPoint* pMPi : tmp_mspMapPoints2)
+    for(MapPoint* pMPi : mspMapPoints)
     {
         if(!pMPi || pMPi->isBad())
             continue;

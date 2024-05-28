@@ -34,13 +34,13 @@ IMU.T_b_c1: !!opencv-matrix
    rows: 4
    cols: 4
    dt: f
-   data: [1,0,0,-0.005,
-         0,1,0,-0.005,
-         0,0,1,0.0117,
+   data: [0.9999808,0.0033242,-0.0052331,0.011367,
+         -0.0034123,0.9998513,-0.0168037,0.020342,
+         0.0051761,0.0169213,0.9998434,-0.0050164,
          0.0, 0.0, 0.0, 1.0]
 
 # Do not insert KFs when recently lost
-IMU.InsertKFsWhenLost: 1
+IMU.InsertKFsWhenLost: 0
 
 # IMU noise (Use those from VINS-mono)
 IMU.NoiseGyro: 1e-3 # 2.44e-4 #1e-3 # rad/s^0.5

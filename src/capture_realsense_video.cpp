@@ -19,7 +19,8 @@ class CaptureVideo : public rclcpp::Node
 {
   public:
     CaptureVideo()
-    : Node("capture_video")
+    : Node("capture_video"),
+    count(0)
     {
       // declare parameters
       declare_parameter("video_name", "realsense_video.mp4");
@@ -77,6 +78,10 @@ class CaptureVideo : public rclcpp::Node
   private:
     void imu_callback(const sensor_msgs::msg::Imu msg)
     {
+      if(!count) {
+        timestamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9;
+        return;
+      }
       geometry_msgs::msg::Vector3 linear_acceleration = msg.linear_acceleration;
 
       double roll, pitch, yaw;
@@ -93,6 +98,9 @@ class CaptureVideo : public rclcpp::Node
     }
     void image_callback(const sensor_msgs::msg::Image::SharedPtr msg)
     {
+      if (!count) {
+        count++;
+      }
       auto cv_ptr = cv_bridge::toCvShare(msg, sensor_msgs::image_encodings::MONO8);
       output_video << cv_ptr->image;
 
@@ -109,6 +117,7 @@ class CaptureVideo : public rclcpp::Node
     std::ofstream image_timestamp_file;
     std::string time_string;
     double timestamp;
+    int count;
 };
 
 int main(int argc, char * argv[])

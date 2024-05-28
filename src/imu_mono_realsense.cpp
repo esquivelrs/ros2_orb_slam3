@@ -39,7 +39,7 @@ class ImuMonoRealSense : public rclcpp::Node
   public:
     ImuMonoRealSense()
     : Node("imu_mono_realsense"),
-      vocabulary_file_path(std::string(PROJECT_PATH)+ "/orb_slam3/Vocabulary/ORBvoc.txt.bin"),
+      vocabulary_file_path(std::string(PROJECT_PATH)+ "/orb_slam3/Vocabulary/ORBvoc.txt"),
       count(0),
       count2(0)
     {
@@ -187,8 +187,8 @@ class ImuMonoRealSense : public rclcpp::Node
       timestamp = msg->header.stamp.sec + msg->header.stamp.nanosec * 1e-9;
 
       cv::Mat frame = cv_ptr->image;
-      cv::imshow("image", frame);
-      cv::waitKey(1);
+      // cv::imshow("image", frame);
+      // cv::waitKey(1);
 
       if(image_scale != 1.f) {
         cv::resize(frame, frame, cv::Size(frame.cols*image_scale, frame.rows*image_scale));
@@ -203,11 +203,6 @@ class ImuMonoRealSense : public rclcpp::Node
       //   count++;
       // }
       count++;
-
-      if (!Tcw.matrix().isIdentity())
-      {
-        RCLCPP_INFO(get_logger(), "not identity!");
-      }
     }
 
     void imu_callback(const sensor_msgs::msg::Imu msg)
@@ -216,10 +211,13 @@ class ImuMonoRealSense : public rclcpp::Node
         vImuMeas.clear();
         count = 0;
       }
-      ORB_SLAM3::IMU::Point imu_meas(msg.linear_acceleration.x, msg.linear_acceleration.y, msg.linear_acceleration.z,
-          msg.angular_velocity.x, msg.angular_velocity.y, msg.angular_velocity.z,
+
+      ORB_SLAM3::IMU::Point imu_meas(static_cast<float>(msg.linear_acceleration.x),
+          static_cast<float>(msg.linear_acceleration.y), static_cast<float>(msg.linear_acceleration.z),
+          static_cast<float>(msg.angular_velocity.x), static_cast<float>(msg.angular_velocity.y), static_cast<float>(msg.angular_velocity.z),
           msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9);
       vImuMeas.push_back(imu_meas);
+      // RCLCPP_INFO_STREAM(get_logger(), "imu timestamp: " << std::fixed << std::setprecision(9) << msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9);
 
 
     }
@@ -241,7 +239,7 @@ class ImuMonoRealSense : public rclcpp::Node
         }
 
         timestamp = timestamp_data[0] + timestamp_data[1] * 1e-9;
-        RCLCPP_INFO_STREAM(get_logger(), "image timestamp: " << timestamp);
+        // RCLCPP_INFO_STREAM(get_logger(), "image timestamp: " << std::fixed << std::setprecision(9) << timestamp);
 
         if (!frame.empty()) {
           if(image_scale != 1.f) {
@@ -285,7 +283,6 @@ class ImuMonoRealSense : public rclcpp::Node
         }
         ORB_SLAM3::IMU::Point imu_meas(imu_data[0], imu_data[1], imu_data[2],
             imu_data[3], imu_data[4], imu_data[5], imu_data[6]);
-        RCLCPP_INFO_STREAM(get_logger(), "imu timestamp: " << std::fixed << std::setprecision(9) << imu_data[6] << std::endl);
         vImuMeas.push_back(imu_meas);
 
 
@@ -299,7 +296,6 @@ class ImuMonoRealSense : public rclcpp::Node
             std::string timestamp_line;
             std::getline(video_timestamp_file, timestamp_line);
             timestamp = std::stod(timestamp_line);
-            RCLCPP_INFO_STREAM(get_logger(), "image timestamp: " << std::fixed << std::setprecision(9)<< timestamp);
 
             if (!frame.empty()) {
               if(image_scale != 1.f) {

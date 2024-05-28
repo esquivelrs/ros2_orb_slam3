@@ -222,8 +222,10 @@ protected:
     // Fix scale in the stereo/RGB-D case
     bool mbFixScale;
 
-    // bool mnFullBAIdx; // https://github.com/UZ-SLAMLab/ORB_SLAM3/issues/550
-    unsigned int mnFullBAIdx;
+
+    bool mnFullBAIdx;
+
+
 
     vector<double> vdPR_CurrentTime;
     vector<double> vdPR_MatchedTime;
