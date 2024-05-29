@@ -118,7 +118,8 @@ class ImuMonoRealSense : public rclcpp::Node
       }
 
       // setup orb slam object
-      pAgent = std::make_shared<ORB_SLAM3::System>(vocabulary_file_path, 
+      pAgent = std::make_shared<ORB_SLAM3::System>(
+          vocabulary_file_path, 
           settings_file_path,
           sensor_type,
           use_pangolin,
@@ -212,8 +213,8 @@ class ImuMonoRealSense : public rclcpp::Node
         count = 0;
       }
 
-      ORB_SLAM3::IMU::Point imu_meas(static_cast<float>(msg.linear_acceleration.x),
-          static_cast<float>(msg.linear_acceleration.y), static_cast<float>(msg.linear_acceleration.z),
+      ORB_SLAM3::IMU::Point imu_meas(
+          static_cast<float>(msg.linear_acceleration.x), static_cast<float>(msg.linear_acceleration.y), static_cast<float>(msg.linear_acceleration.z),
           static_cast<float>(msg.angular_velocity.x), static_cast<float>(msg.angular_velocity.y), static_cast<float>(msg.angular_velocity.z),
           msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9);
       vImuMeas.push_back(imu_meas);
@@ -224,6 +225,7 @@ class ImuMonoRealSense : public rclcpp::Node
 
     void image_timer_callback()
     {
+      RCLCPP_INFO_STREAM(get_logger(), "image timer callback");
       if (!use_live_feed) {
         cv::Mat frame;
         input_video >> frame;

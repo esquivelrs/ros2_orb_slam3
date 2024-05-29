@@ -9,12 +9,15 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -O3")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -O3")
 
+# Make sure we can find eigen3.3
+list(APPEND CMAKE_PREFIX_PATH "~/prefix/eigen3.3")
+
 # Check C++17 support
 include(CheckCXXCompilerFlag)
 CHECK_CXX_COMPILER_FLAG("-std=c++17" COMPILER_SUPPORTS_CXX17)
 
 if(NOT CMAKE_BUILD_TYPE)        # If no build type is set, set one
-  set(CMAKE_BUILD_TYPE "Debug" CACHE STRING "Type of build." FORCE)
+    set(CMAKE_BUILD_TYPE "Debug" CACHE STRING "Type of build." FORCE)
 endif()
 
 if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX)
@@ -35,6 +38,8 @@ endif()
 
 # LIST(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake_modules) # REDUNDANT?
 
+# SET(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -march=native")
+# SET(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O3 -march=native")
 set(project_path ${CMAKE_CURRENT_SOURCE_DIR})
 set(ENV{PROJECT_PATH} "${project_path}")
 add_definitions(-DPROJECT_PATH="${project_path}")
@@ -62,9 +67,11 @@ find_package(pcl_ros REQUIRED)
 find_package(pcl_conversions REQUIRED)
 
 
+# set(EIGEN3_INCLUDE_DIR "/home/graham/prefix/eigen3.1/include/eigen3")
 # Header file locations [C++ node]
 include_directories(include) # Add .hpp, .h files from include/ros2_orb_slam3
 include_directories(${EIGEN3_INCLUDE_DIRS}) # Include headers for eigen3
+# include_directories(${EIGEN3_INCLUDE_DIR}) # Include headers for eigen3
 include_directories(${Pangolin_INCLUDE_DIRS}) # include headers for pangolin
 include_directories(${OpenCV_INCLUDE_DIRS}) # include headers for pangolin
 
