@@ -23,7 +23,11 @@
 
   <!-- As suggested by the official tutorial, add your custom message interfaces as follows -->
   <!-- <depend>your_custom_msg_interface</depend>  -->
-  
+
+  <buildtool_depend>rosidl_default_generators</buildtool_depend>
+  <exec_depend>rosidl_default_runtime</exec_depend>
+  <member_of_group>rosidl_interface_packages</member_of_group>
+
   <exec_depend>rclcpp</exec_depend>
   <exec_depend>rclpy</exec_depend>
   <exec_depend>std_msgs</exec_depend>

@@ -8,17 +8,26 @@
 #include <apriltag/tagStandard41h12.h>
 #include <apriltag/tagStandard52h13.h>
 #include <apriltag/apriltag.h>
+#include <apriltag/apriltag_pose.h>
 
-
+#include <ros2_orb_slam3/msg/pose_delta.hpp>
+#include <std_msgs/msg/float32.hpp>
+#include <std_msgs/msg/float32_multi_array.hpp>
 #include <opencv2/opencv.hpp>
 
-#include <rclcpp/subscription.hpp>
+#include <sensor_msgs/msg/camera_info.hpp>
 #include <sensor_msgs/msg/image.hpp>
 #include <cv_bridge/cv_bridge.h>
 #include <memory>
 
 #include "rclcpp/rclcpp.hpp"
 using std::placeholders::_1;
+
+struct my_pose
+{
+  apriltag_pose_t the_pose;
+  int id;
+};
 
 class AprilTagNode : public rclcpp::Node
 {
@@ -82,6 +91,11 @@ class AprilTagNode : public rclcpp::Node
       // declare subscribers
       image_sub = create_subscription<sensor_msgs::msg::Image>(
           "camera/color/image_raw", 10, std::bind(&AprilTagNode::image_callback, this, _1));
+      camera_intrinsics_sub = create_subscription<sensor_msgs::msg::CameraInfo>(
+          "camera/color/camera_info", 10, std::bind(&AprilTagNode::camera_intrinsics_callback, this, _1));
+
+      // declare publishers
+      pose_delta_pub = create_publisher<ros2_orb_slam3::msg::PoseDelta>("pose_delta", 10);
     }
 
     ~AprilTagNode()
@@ -126,9 +140,24 @@ class AprilTagNode : public rclcpp::Node
     }
 
   private:
+    void camera_intrinsics_callback(const sensor_msgs::msg::CameraInfo msg)
+    {
+      camera_intrinsics = msg;
+      info.tagsize = 0.115;
+      info.fx = camera_intrinsics.k[0];
+      info.fy = camera_intrinsics.k[4];
+      info.cx = camera_intrinsics.k[2];
+      info.cy = camera_intrinsics.k[5];
+    }
+
     void image_callback(const sensor_msgs::msg::Image::SharedPtr msg)
     {
-      auto cv_ptr = cv_bridge::toCvShare(msg, sensor_msgs::image_encodings::MONO8);
+      if (camera_intrinsics.height == 0 || camera_intrinsics.width == 0)
+      {
+        RCLCPP_ERROR(get_logger(), "Camera intrinsics not received yet");
+        return;
+      }
+      auto cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::MONO8);
       cv::Mat frame = cv_ptr->image;
 
       image_u8_t im = {cv_ptr->image.cols, cv_ptr->image.rows, cv_ptr->image.cols, cv_ptr->image.data};
@@ -140,36 +169,90 @@ class AprilTagNode : public rclcpp::Node
         zarray_get(detections, i, &det);
         RCLCPP_INFO_STREAM(get_logger(), "Detected tag " << det->id);
         RCLCPP_INFO_STREAM(get_logger(), "Detected tag center " << det->c[0] << ", " << det->c[1]);
+
+        // Figure out tag pose
+        info.det = det;
+
+        apriltag_pose_t pose;
+        double err = estimate_tag_pose(&info, &pose);
+        bool found_pose = false;
+        for (size_t i = 0; i < prev_poses.size(); i ++){
+          if (prev_poses.at(i).id == det->id) {
+            prev_poses.at(i) = my_pose{pose, det->id};
+            found_pose = true;
+          }
+        }
+        if (!found_pose) {
+          prev_poses.push_back(my_pose{pose, det->id});
+        }
+        RCLCPP_INFO_STREAM(get_logger(), "Tag pose error " << err);
+        RCLCPP_INFO_STREAM(get_logger(), "Tag pose R " << pose.R->data[0] << ", " << pose.R->data[1] << ", " << pose.R->data[2]);
+        RCLCPP_INFO_STREAM(get_logger(), "Tag pose R " << pose.R->data[3] << ", " << pose.R->data[4] << ", " << pose.R->data[5]);
+        RCLCPP_INFO_STREAM(get_logger(), "Tag pose R " << pose.R->data[6] << ", " << pose.R->data[7] << ", " << pose.R->data[8]);
+        RCLCPP_INFO_STREAM(get_logger(), "Tag pose t " << pose.t->data[0] << ", " << pose.t->data[1] << ", " << pose.t->data[2]);
+
+        if (found_pose) {
+          // Make pose delta object
+          ros2_orb_slam3::msg::PoseDelta pose_delta;
+          pose_delta.header.stamp = msg->header.stamp;
+
+          // Create translation part of the object
+          std_msgs::msg::Float32MultiArray pose_delta_translation;
+          pose_delta_translation.data = {
+            static_cast<float>(pose.t->data[0]) - static_cast<float>(prev_poses.at(i).the_pose.t->data[0]), 
+            static_cast<float>(pose.t->data[1]) - static_cast<float>(prev_poses.at(i).the_pose.t->data[1]),
+            static_cast<float>(pose.t->data[2]) - static_cast<float>(prev_poses.at(i).the_pose.t->data[2])};
+          pose_delta.translation = pose_delta_translation;
+
+          std_msgs::msg::Float32MultiArray pose_delta_rotation;
+          pose_delta_rotation.data = {
+            static_cast<float>(pose.R->data[0]) - static_cast<float>(prev_poses.at(i).the_pose.R->data[0]),
+            static_cast<float>(pose.R->data[1]) - static_cast<float>(prev_poses.at(i).the_pose.R->data[1]),
+            static_cast<float>(pose.R->data[2]) - static_cast<float>(prev_poses.at(i).the_pose.R->data[2]),
+            static_cast<float>(pose.R->data[3]) - static_cast<float>(prev_poses.at(i).the_pose.R->data[3]),
+            static_cast<float>(pose.R->data[4]) - static_cast<float>(prev_poses.at(i).the_pose.R->data[4]),
+            static_cast<float>(pose.R->data[5]) - static_cast<float>(prev_poses.at(i).the_pose.R->data[5]),
+            static_cast<float>(pose.R->data[6]) - static_cast<float>(prev_poses.at(i).the_pose.R->data[6]),
+            static_cast<float>(pose.R->data[7]) - static_cast<float>(prev_poses.at(i).the_pose.R->data[7]),
+            static_cast<float>(pose.R->data[8]) - static_cast<float>(prev_poses.at(i).the_pose.R->data[8])};
+          pose_delta.rotation = pose_delta_rotation;
+          pose_delta_pub->publish(pose_delta);
+        }
+
+        // Draw tag outline
+        line(frame, cv::Point(det->p[0][0], det->p[0][1]),
+                 cv::Point(det->p[1][0], det->p[1][1]),
+                 cv::Scalar(0, 0xff, 0), 2);
+        line(frame, cv::Point(det->p[0][0], det->p[0][1]),
+                 cv::Point(det->p[3][0], det->p[3][1]),
+                 cv::Scalar(0, 0, 0xff), 2);
+        line(frame, cv::Point(det->p[1][0], det->p[1][1]),
+                 cv::Point(det->p[2][0], det->p[2][1]),
+                 cv::Scalar(0xff, 0, 0), 2);
+        line(frame, cv::Point(det->p[2][0], det->p[2][1]),
+                 cv::Point(det->p[3][0], det->p[3][1]),
+                 cv::Scalar(0xff, 0, 0), 2);
+
+        std::stringstream ss;
+        ss << det->id;
+        cv::String text = ss.str();
+        int fontface = cv::FONT_HERSHEY_SCRIPT_SIMPLEX;
+        double fontscale = 1.0;
+        int baseline;
+        cv::Size textsize = cv::getTextSize(text, fontface, fontscale, 2,
+                                        &baseline);
+        putText(frame, text, cv::Point(det->c[0]-textsize.width/2.0,
+                                   det->c[1]+textsize.height/2.0),
+                fontface, fontscale, cv::Scalar(0xff, 0x99, 0), 2);
       }
 
       // Draw detection outlines
         for (int i = 0; i < zarray_size(detections); i++) {
-            apriltag_detection_t *det;
-            zarray_get(detections, i, &det);
-            line(frame, cv::Point(det->p[0][0], det->p[0][1]),
-                     cv::Point(det->p[1][0], det->p[1][1]),
-                     cv::Scalar(0, 0xff, 0), 2);
-            line(frame, cv::Point(det->p[0][0], det->p[0][1]),
-                     cv::Point(det->p[3][0], det->p[3][1]),
-                     cv::Scalar(0, 0, 0xff), 2);
-            line(frame, cv::Point(det->p[1][0], det->p[1][1]),
-                     cv::Point(det->p[2][0], det->p[2][1]),
-                     cv::Scalar(0xff, 0, 0), 2);
-            line(frame, cv::Point(det->p[2][0], det->p[2][1]),
-                     cv::Point(det->p[3][0], det->p[3][1]),
-                     cv::Scalar(0xff, 0, 0), 2);
+          apriltag_detection_info_t info;
+        
 
-            std::stringstream ss;
-            ss << det->id;
-            cv::String text = ss.str();
-            int fontface = cv::FONT_HERSHEY_SCRIPT_SIMPLEX;
-            double fontscale = 1.0;
-            int baseline;
-            cv::Size textsize = cv::getTextSize(text, fontface, fontscale, 2,
-                                            &baseline);
-            putText(frame, text, cv::Point(det->c[0]-textsize.width/2.0,
-                                       det->c[1]+textsize.height/2.0),
-                    fontface, fontscale, cv::Scalar(0xff, 0x99, 0), 2);
+          apriltag_detection_t *det;
+          zarray_get(detections, i, &det);
         }
         apriltag_detections_destroy(detections);
 
@@ -178,6 +261,21 @@ class AprilTagNode : public rclcpp::Node
 
     }
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_sub;
+    rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr camera_intrinsics_sub;
+    rclcpp::Publisher<ros2_orb_slam3::msg::PoseDelta>::SharedPtr pose_delta_pub;
+    // would making this a service call be better? I'm sending over the difference
+    // in change in pose to another node. This happens whenever I get a new image,
+    // and the other node is also going to be getting many images. However I probalby
+    // want to check if the image messages in either node have a the exact same time
+    // stamp when they hit their respective callbacks. If they don't then it makes
+    // it a lot more complicated to compare change in pose.
+
+    // no, need a custom message type with timestamp and pose message(!) to send the
+    // pose to the orb_slam3 node to be compared.
+
+    sensor_msgs::msg::CameraInfo camera_intrinsics;
+    std::vector<my_pose> prev_poses;
+    apriltag_detection_info_t info;
 
     std::string apriltag_family;
     apriltag_family_t *tf;

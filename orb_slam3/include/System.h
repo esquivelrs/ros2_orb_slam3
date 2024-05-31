@@ -85,6 +85,7 @@ class System
 public:
     // Input sensor
     enum eSensor{
+        NOT_SET=-1,
         MONOCULAR=0,
         STEREO=1,
         RGBD=2,
@@ -101,7 +102,9 @@ public:
 
 public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+    
     // Initialize the SLAM system. It launches the Local Mapping, Loop Closing and Viewer threads.
+    //* Constructor
     System(const string &strVocFile, const string &strSettingsFile, const eSensor sensor, const bool bUseViewer = true, const int initFr = 0, const string &strSequence = std::string());
 
     // Proccess the given stereo frame. Images must be synchronized and rectified.
@@ -115,6 +118,7 @@ public:
     // Returns the camera pose (empty if tracking fails).
     Sophus::SE3f TrackRGBD(const cv::Mat &im, const cv::Mat &depthmap, const double &timestamp, const vector<IMU::Point>& vImuMeas = vector<IMU::Point>(), string filename="");
 
+    //* Main method for monocular SLAM mode
     // Proccess the given monocular frame and optionally imu data
     // Input images: RGB (CV_8UC3) or grayscale (CV_8U). RGB is converted to grayscale.
     // Returns the camera pose (empty if tracking fails).
@@ -168,7 +172,7 @@ public:
     void SaveTrajectoryKITTI(const string &filename);
 
     // TODO: Save/Load functions
-    // SaveMap(const string &filename);
+    bool SaveMap(const string &filename);
     // LoadMap(const string &filename);
 
     // Information from most recent processed frame
@@ -176,6 +180,15 @@ public:
     int GetTrackingState();
     std::vector<MapPoint*> GetTrackedMapPoints();
     std::vector<cv::KeyPoint> GetTrackedKeyPointsUn();
+    std::vector<cv::KeyPoint> GetTrackedKeyPoints();
+    std::vector<MapPoint*> GetAllMapPoints();
+    std::vector<Sophus::SE3f> GetAllKeyframePoses();
+    cv::Mat GetCurrentFrame();
+
+    Sophus::SE3f GetCamTwc();
+    Sophus::SE3f GetImuTwb();
+    Eigen::Vector3f GetImuVwb();
+    bool isImuPreintegrated();
 
     // For debugging
     double GetTimeFromIMUInit();
@@ -194,7 +207,7 @@ public:
 
 private:
 
-    void SaveAtlas(int type);
+    bool SaveAtlas(int type);
     bool LoadAtlas(int type);
 
     string CalculateCheckSum(string filename, int type);
@@ -253,6 +266,7 @@ private:
     int mTrackingState;
     std::vector<MapPoint*> mTrackedMapPoints;
     std::vector<cv::KeyPoint> mTrackedKeyPointsUn;
+    std::vector<cv::KeyPoint> mTrackedKeyPoints;
     std::mutex mMutexState;
 
     //

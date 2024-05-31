@@ -67,6 +67,7 @@ find_package(pcl_ros REQUIRED)
 find_package(pcl_conversions REQUIRED)
 
 
+
 # set(EIGEN3_INCLUDE_DIR "/home/graham/prefix/eigen3.1/include/eigen3")
 # Header file locations [C++ node]
 include_directories(include) # Add .hpp, .h files from include/ros2_orb_slam3
@@ -251,10 +252,25 @@ ament_target_dependencies(apriltag_node
   PUBLIC ${THIS_PACKAGE_INCLUDE_DEPENDS}
 )
 
+# custom interfaces
+find_package(rosidl_default_generators REQUIRED)
+
+rosidl_generate_interfaces(${PROJECT_NAME}
+    "msg/PoseDelta.msg"
+    DEPENDENCIES std_msgs
+)
+
+rosidl_get_typesupport_target(cpp_typesupport_target
+  ${PROJECT_NAME} rosidl_typesupport_cpp)
+
+# target_link_libraries(apriltag_node "${cpp_typesupport_target}")
+# target_link_libraries(imu_mono_node_cpp "${cpp_typesupport_target}")
+
+
 target_link_libraries(mono_node_cpp PUBLIC orb_slam3_lib) # Link a node with the internal shared library
-target_link_libraries(imu_mono_node_cpp PUBLIC orb_slam3_lib) # Link a node with the internal shared library
+target_link_libraries(imu_mono_node_cpp PUBLIC orb_slam3_lib "${cpp_typesupport_target}") # Link a node with the internal shared library
 target_link_libraries(example_mono_node_cpp PUBLIC orb_slam3_lib) # Link a node with the internal shared library
-target_link_libraries(apriltag_node PUBLIC apriltag::apriltag)
+target_link_libraries(apriltag_node PUBLIC apriltag::apriltag "${cpp_typesupport_target}")
 
 # Install all the header files in package/package/include
 install (DIRECTORY include/ 
@@ -303,6 +319,7 @@ ament_export_include_directories(include)
 
 # Help downstream packages to find transitive dependencies
 ament_export_dependencies(
+  rosidl_default_runtime
   orb_slam3_lib
   ${THIS_PACKAGE_INCLUDE_DEPENDS}
 )
@@ -310,7 +327,7 @@ ament_export_dependencies(
 
 # Python node
 # Install Python modules, submodules
-ament_python_install_package(${PROJECT_NAME}) # Install the modules in ros2_orb_slam3/ros2_orb_slam3 folder
+# ament_python_install_package(${PROJECT_NAME}) # Install the modules in ros2_orb_slam3/ros2_orb_slam3 folder
 
 # Install Python executibles
 install(PROGRAMS

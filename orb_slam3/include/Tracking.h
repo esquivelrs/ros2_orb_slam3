@@ -94,6 +94,11 @@ public:
         return mpLastKeyFrame;
     }
 
+    Sophus::SE3f GetCamTwc();
+    Sophus::SE3f GetImuTwb();
+    Eigen::Vector3f GetImuVwb();
+    bool isImuPreintegrated();
+
     void CreateMapInAtlas();
     //std::mutex mMutexTracks;
 
@@ -146,6 +151,7 @@ public:
     std::vector<cv::Point2f> mvbPrevMatched;
     std::vector<cv::Point3f> mvIniP3D;
     Frame mInitialFrame;
+    Sophus::SE3f Tc0w;
 
     // Lists used to recover the full camera trajectory at the end of the execution.
     // Basically we store the reference keyframe for each frame and its relative transformation
