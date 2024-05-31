@@ -38,6 +38,7 @@ class ImuMonoRealSense : public rclcpp::Node
     ImuMonoRealSense()
     : Node("imu_mono_realsense"),
       vocabulary_file_path(std::string(PROJECT_PATH)+ "/orb_slam3/Vocabulary/old_ORBvoc.txt.bin"),
+      pose_ready(false),
       count(0),
       count2(0),
       count3(0)
@@ -143,6 +144,10 @@ class ImuMonoRealSense : public rclcpp::Node
       // create timer
       image_timer = create_wall_timer(1s/30, std::bind(&ImuMonoRealSense::image_timer_callback, this), image_timer_callback_group);
       imu_timer = create_wall_timer(1s/200, std::bind(&ImuMonoRealSense::imu_timer_callback, this), imu_timer_callback_group);
+      
+      pose_delta = ros2_orb_slam3::msg::PoseDelta();
+      sum_pose_delta = {0, 0, 0};
+      sum_Tcw_delta = {0, 0, 0};
     }
 
     ~ImuMonoRealSense()
@@ -160,17 +165,26 @@ class ImuMonoRealSense : public rclcpp::Node
     {
 
       // calculate the scale factor by averaging things
-      double x_sum = 0;
-      double y_sum = 0;
-      double z_sum = 0;
+      // double x_sum = 0;
+      // double y_sum = 0;
+      // double z_sum = 0;
+      // for (size_t i = 0; i < scale_factors.size(); i ++) {
+      //   x_sum += scale_factors.at(i).at(0);
+      //   y_sum += scale_factors.at(i).at(1);
+      //   z_sum += scale_factors.at(i).at(2);
+      // }
+      // std::vector<double> sf = {x_sum/scale_factors.size(),
+      //                                            y_sum/scale_factors.size(),
+      //                                            z_sum/scale_factors.size()};
+      // for (size_t i = 0; i < sf.size(); i++) {
+      //   RCLCPP_INFO_STREAM(get_logger(), "scale factor " << i << ": " << sf.at(i));
+      // }
+      double scale_factor = 0;
       for (size_t i = 0; i < scale_factors.size(); i ++) {
-        x_sum += scale_factors.at(i).at(0);
-        y_sum += scale_factors.at(i).at(1);
-        z_sum += scale_factors.at(i).at(2);
+        scale_factor += scale_factors.at(i);
       }
-      std::vector<double> sf = {x_sum/scale_factors.size(),
-                                                 y_sum/scale_factors.size(),
-                                                 z_sum/scale_factors.size()};
+      scale_factor = scale_factor/scale_factors.size();
+      RCLCPP_INFO_STREAM(get_logger(), "scale factor: " << scale_factor);
       std::ofstream map_file;
       // add date and time to the map file name
       std::string time_string;
@@ -190,7 +204,7 @@ class ImuMonoRealSense : public rclcpp::Node
         for (auto &map_point : map_points)
         {
           Eigen::Vector3f pos = map_point->GetWorldPos();
-          map_file << pos[0] * sf[0]  << "," << pos[1] * sf[1] << "," << pos[2] * sf[2] << std::endl;
+          map_file << pos[0] * scale_factor << "," << pos[1] * scale_factor << "," << pos[2] * scale_factor << std::endl;
         }
         map_file.close();
       }
@@ -200,30 +214,92 @@ class ImuMonoRealSense : public rclcpp::Node
       }
     }
 
+    void pose_delta_callback(const ros2_orb_slam3::msg::PoseDelta msg)
+    {
+      pose_delta = msg;
+      pose_ready = true;
+    }
+
     void image_callback(const sensor_msgs::msg::Image::SharedPtr msg)
     {
       auto cv_ptr = cv_bridge::toCvShare(msg, sensor_msgs::image_encodings::MONO8);
       timestamp = msg->header.stamp.sec + msg->header.stamp.nanosec * 1e-9;
 
       cv::Mat frame = cv_ptr->image;
-      // cv::imshow("image", frame);
-      // cv::waitKey(1);
 
       if(image_scale != 1.f) {
         cv::resize(frame, frame, cv::Size(frame.cols*image_scale, frame.rows*image_scale));
       }
 
-      Sophus::SE3f Tcw = pAgent->TrackMonocular(frame, timestamp, vImuMeas);
-      // RCLCPP_INFO_STREAM(get_logger(), "Tcw: " << Tcw.translation());
-      // RCLCPP_INFO_STREAM(get_logger(), "Tcw rotation: " << Tcw.rotationMatrix());
+      if (sensor_type_param == "monocular") {
+        Sophus::SE3f Tcw = pAgent->TrackMonocular(frame, timestamp);
+        auto key_points = pAgent->GetTrackedKeyPoints();
+        auto map_points = pAgent->GetTrackedMapPoints();
+        RCLCPP_INFO_STREAM(get_logger(), "key_pionts: " << key_points.size());
+        RCLCPP_INFO_STREAM(get_logger(), "map_points: " << map_points.size());
+        RCLCPP_INFO_STREAM(get_logger(), "key_points[0]: " << key_points.at(0).pt);
+        RCLCPP_INFO_STREAM(get_logger(), "map_points[0]: " << map_points.at(0));
+        // RCLCPP_INFO_STREAM(get_logger(), "Tcw translation: \n" << Tcw.translation());
+        // RCLCPP_INFO_STREAM(get_logger(), "Tcw rotation[0]: \n" << Tcw.rotationMatrix().array());
+        for (size_t i = 0; i < key_points.size(); i++) {
+          if (map_points.at(i) != 0) {
+            RCLCPP_INFO_STREAM(get_logger(), "key_point: " << key_points.at(i).pt << ", map_point: " << map_points.at(i)->GetWorldPos()[0]
+                << ", " << map_points.at(i)->GetWorldPos()[1] << ", " << map_points.at(i)->GetWorldPos()[2]);
+          }
+        }
+        if (!Tcw.matrix().isIdentity() && count2 == 0) {
+          initial_orientation = current_imu_meas;
+          Tcw_prev = Tcw;
+          count2++;
+          return;
+        }
 
-      // if (!Tcw.matrix().isIdentity() && count == 0)
-      // {
-      //   RCLCPP_INFO(get_logger(), "initial orientation set");
-      //   *initial_orientation = vImuMeas.back();
-      //   count++;
-      // }
-      count++;
+        if (count2 > 0 && pose_ready) {
+            std::vector<float> Tcw_delta = {
+              Tcw.translation()[0] - Tcw_prev.translation()[0],
+              Tcw.translation()[1] - Tcw_prev.translation()[1],
+              Tcw.translation()[2] - Tcw_prev.translation()[2]
+            };
+
+
+            sum_Tcw_delta.at(0) += Tcw_delta.at(0);
+            sum_Tcw_delta.at(1) += Tcw_delta.at(1);
+            sum_Tcw_delta.at(2) += Tcw_delta.at(2);
+            Tcw_prev = Tcw;
+            // RCLCPP_INFO_STREAM(get_logger(), "pose_delta: \n" << pose_delta.translation.data.at(0) << ", " << pose_delta.translation.data.at(1) << ", " << pose_delta.translation.data.at(2) << "\n");
+            sum_pose_delta.at(0) += pose_delta.translation.data.at(0);
+            sum_pose_delta.at(1) += pose_delta.translation.data.at(1);
+            sum_pose_delta.at(2) += pose_delta.translation.data.at(2);
+            if(count3 == 30) {
+              Eigen::Vector3f pose_delta = {sum_pose_delta.at(0), sum_pose_delta.at(1), sum_pose_delta.at(2)};
+              Eigen::Vector3f Tcw_delta = {sum_Tcw_delta.at(0), sum_Tcw_delta.at(1), sum_Tcw_delta.at(2)};
+              double scale_factor = Tcw_delta.norm() / pose_delta.norm();
+              // std::vector<double> scaling = {
+              //   sum_Tcw_delta.at(0)/sum_pose_delta.at(0),
+              //   sum_Tcw_delta.at(1)/sum_pose_delta.at(1),
+              //   sum_Tcw_delta.at(2)/sum_pose_delta.at(2)
+              // };
+              RCLCPP_INFO_STREAM(get_logger(), "sum_pose_delta: " << sum_pose_delta.at(0) << ", " << sum_pose_delta.at(1) << ", " << sum_pose_delta.at(2) << "\n");
+              RCLCPP_INFO_STREAM(get_logger(), "sum_Tcw_delta: " << sum_Tcw_delta.at(0) << ", " << sum_Tcw_delta.at(1) << ", " << sum_Tcw_delta.at(2) << "\n");
+              // scale_factors.push_back(scaling);
+              scale_factors.push_back(scale_factor);
+              sum_Tcw_delta = {0.0, 0.0, 0.0};
+              sum_pose_delta = {0.0, 0.0, 0.0};
+              count3 = 0;
+              RCLCPP_INFO_STREAM(get_logger(), "scale_factor: " << scale_factor);
+              RCLCPP_INFO_STREAM(get_logger(), "scale_factors: " << scale_factors.size() << std::endl);
+            }
+            count3++;
+            pose_ready = false;
+        }
+
+      } else if (sensor_type_param == "imu-monocular"){
+        Sophus::SE3f Tcw = pAgent->TrackMonocular(frame, timestamp, vImuMeas);
+      }
+      count ++;
+
+      cv::imshow("frame", frame);
+      cv::waitKey(1);
     }
 
     void imu_callback(const sensor_msgs::msg::Imu msg)
@@ -241,11 +317,6 @@ class ImuMonoRealSense : public rclcpp::Node
       // RCLCPP_INFO_STREAM(get_logger(), "imu timestamp: " << std::fixed << std::setprecision(9) << msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9);
 
 
-    }
-
-    void pose_delta_callback(const ros2_orb_slam3::msg::PoseDelta msg)
-    {
-      pose_delta = msg;
     }
 
     void image_timer_callback()
@@ -289,7 +360,7 @@ class ImuMonoRealSense : public rclcpp::Node
               std::vector<double> scaling = {Tcw_delta[0]/pose_delta.translation.data[0],
                                              Tcw_delta[1]/pose_delta.translation.data[1],
                                              Tcw_delta[2]/pose_delta.translation.data[2]};
-              scale_factors.push_back(scaling);
+              // scale_factors.push_back(scaling);
             }
 
           } else if (sensor_type_param == "imu-monocular"){
@@ -381,11 +452,14 @@ class ImuMonoRealSense : public rclcpp::Node
 
     // save the differences between the translation portions of the trajectories
     // here, and then I can use that to scale everything here?
-    std::vector<std::vector<double>> scale_factors;
+    std::vector<double> scale_factors;
     ros2_orb_slam3::msg::PoseDelta pose_delta;
+    std::vector<float> sum_pose_delta;
+    std::vector<float> sum_Tcw_delta;
     Sophus::SE3f Tcw_prev;
 
     std::shared_ptr<ORB_SLAM3::IMU::Point> initial_orientation;
+    bool pose_ready;
     int count;
     int count2;
     int count3;

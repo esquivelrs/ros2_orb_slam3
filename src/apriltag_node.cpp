@@ -37,9 +37,11 @@ class AprilTagNode : public rclcpp::Node
     {
       // declare parameters
       declare_parameter("apriltag_family", "tagStandard41h12");
+      declare_parameter("tagsize", 0.115);
 
       // get parameters
       apriltag_family = get_parameter("apriltag_family").as_string();
+      tagsize = get_parameter("tagsize").as_double();
 
       // create apriltag family
       if (apriltag_family == "tag16h5")
@@ -96,6 +98,8 @@ class AprilTagNode : public rclcpp::Node
 
       // declare publishers
       pose_delta_pub = create_publisher<ros2_orb_slam3::msg::PoseDelta>("pose_delta", 10);
+
+      prev_poses.push_back(my_pose{apriltag_pose_t(), -1});
     }
 
     ~AprilTagNode()
@@ -143,7 +147,7 @@ class AprilTagNode : public rclcpp::Node
     void camera_intrinsics_callback(const sensor_msgs::msg::CameraInfo msg)
     {
       camera_intrinsics = msg;
-      info.tagsize = 0.115;
+      info.tagsize = tagsize;
       info.fx = camera_intrinsics.k[0];
       info.fy = camera_intrinsics.k[4];
       info.cx = camera_intrinsics.k[2];
@@ -162,13 +166,13 @@ class AprilTagNode : public rclcpp::Node
 
       image_u8_t im = {cv_ptr->image.cols, cv_ptr->image.rows, cv_ptr->image.cols, cv_ptr->image.data};
       zarray_t *detections = apriltag_detector_detect(detector, &im);
-      RCLCPP_INFO_STREAM(get_logger(), "Detected " << zarray_size(detections) << " tags");
+      // RCLCPP_INFO_STREAM(get_logger(), "Detected " << zarray_size(detections) << " tags\n");
       for (int i = 0; i < zarray_size(detections); i++)
       {
         apriltag_detection_t *det;
         zarray_get(detections, i, &det);
-        RCLCPP_INFO_STREAM(get_logger(), "Detected tag " << det->id);
-        RCLCPP_INFO_STREAM(get_logger(), "Detected tag center " << det->c[0] << ", " << det->c[1]);
+        // RCLCPP_INFO_STREAM(get_logger(), "Detected tag " << det->id);
+        // RCLCPP_INFO_STREAM(get_logger(), "Detected tag center " << det->c[0] << ", " << det->c[1]);
 
         // Figure out tag pose
         info.det = det;
@@ -178,46 +182,46 @@ class AprilTagNode : public rclcpp::Node
         bool found_pose = false;
         for (size_t i = 0; i < prev_poses.size(); i ++){
           if (prev_poses.at(i).id == det->id) {
-            prev_poses.at(i) = my_pose{pose, det->id};
             found_pose = true;
+
+            // Make pose delta object
+            ros2_orb_slam3::msg::PoseDelta pose_delta;
+            pose_delta.header.stamp = msg->header.stamp;
+
+            // Create translation part of the object
+            std_msgs::msg::Float32MultiArray pose_delta_translation;
+            pose_delta_translation.data = {
+              static_cast<float>(pose.t->data[0]) - static_cast<float>(prev_poses.at(i).the_pose.t->data[0]), 
+              static_cast<float>(pose.t->data[1]) - static_cast<float>(prev_poses.at(i).the_pose.t->data[1]),
+              static_cast<float>(pose.t->data[2]) - static_cast<float>(prev_poses.at(i).the_pose.t->data[2])};
+            pose_delta.translation = pose_delta_translation;
+            // RCLCPP_INFO_STREAM(get_logger(), "Translation: " << pose_delta_translation.data.at(0) << ", " << pose_delta_translation.data.at(1) << ", " << pose_delta_translation.data.at(2));
+
+            std_msgs::msg::Float32MultiArray pose_delta_rotation;
+            pose_delta_rotation.data = {
+              static_cast<float>(pose.R->data[0]) - static_cast<float>(prev_poses.at(i).the_pose.R->data[0]),
+              static_cast<float>(pose.R->data[1]) - static_cast<float>(prev_poses.at(i).the_pose.R->data[1]),
+              static_cast<float>(pose.R->data[2]) - static_cast<float>(prev_poses.at(i).the_pose.R->data[2]),
+              static_cast<float>(pose.R->data[3]) - static_cast<float>(prev_poses.at(i).the_pose.R->data[3]),
+              static_cast<float>(pose.R->data[4]) - static_cast<float>(prev_poses.at(i).the_pose.R->data[4]),
+              static_cast<float>(pose.R->data[5]) - static_cast<float>(prev_poses.at(i).the_pose.R->data[5]),
+              static_cast<float>(pose.R->data[6]) - static_cast<float>(prev_poses.at(i).the_pose.R->data[6]),
+              static_cast<float>(pose.R->data[7]) - static_cast<float>(prev_poses.at(i).the_pose.R->data[7]),
+              static_cast<float>(pose.R->data[8]) - static_cast<float>(prev_poses.at(i).the_pose.R->data[8])};
+            pose_delta.rotation = pose_delta_rotation;
+            pose_delta_pub->publish(pose_delta);
+            prev_poses.at(i) = my_pose{pose, det->id};
           }
         }
         if (!found_pose) {
           prev_poses.push_back(my_pose{pose, det->id});
+          return;
         }
-        RCLCPP_INFO_STREAM(get_logger(), "Tag pose error " << err);
-        RCLCPP_INFO_STREAM(get_logger(), "Tag pose R " << pose.R->data[0] << ", " << pose.R->data[1] << ", " << pose.R->data[2]);
-        RCLCPP_INFO_STREAM(get_logger(), "Tag pose R " << pose.R->data[3] << ", " << pose.R->data[4] << ", " << pose.R->data[5]);
-        RCLCPP_INFO_STREAM(get_logger(), "Tag pose R " << pose.R->data[6] << ", " << pose.R->data[7] << ", " << pose.R->data[8]);
-        RCLCPP_INFO_STREAM(get_logger(), "Tag pose t " << pose.t->data[0] << ", " << pose.t->data[1] << ", " << pose.t->data[2]);
-
-        if (found_pose) {
-          // Make pose delta object
-          ros2_orb_slam3::msg::PoseDelta pose_delta;
-          pose_delta.header.stamp = msg->header.stamp;
-
-          // Create translation part of the object
-          std_msgs::msg::Float32MultiArray pose_delta_translation;
-          pose_delta_translation.data = {
-            static_cast<float>(pose.t->data[0]) - static_cast<float>(prev_poses.at(i).the_pose.t->data[0]), 
-            static_cast<float>(pose.t->data[1]) - static_cast<float>(prev_poses.at(i).the_pose.t->data[1]),
-            static_cast<float>(pose.t->data[2]) - static_cast<float>(prev_poses.at(i).the_pose.t->data[2])};
-          pose_delta.translation = pose_delta_translation;
-
-          std_msgs::msg::Float32MultiArray pose_delta_rotation;
-          pose_delta_rotation.data = {
-            static_cast<float>(pose.R->data[0]) - static_cast<float>(prev_poses.at(i).the_pose.R->data[0]),
-            static_cast<float>(pose.R->data[1]) - static_cast<float>(prev_poses.at(i).the_pose.R->data[1]),
-            static_cast<float>(pose.R->data[2]) - static_cast<float>(prev_poses.at(i).the_pose.R->data[2]),
-            static_cast<float>(pose.R->data[3]) - static_cast<float>(prev_poses.at(i).the_pose.R->data[3]),
-            static_cast<float>(pose.R->data[4]) - static_cast<float>(prev_poses.at(i).the_pose.R->data[4]),
-            static_cast<float>(pose.R->data[5]) - static_cast<float>(prev_poses.at(i).the_pose.R->data[5]),
-            static_cast<float>(pose.R->data[6]) - static_cast<float>(prev_poses.at(i).the_pose.R->data[6]),
-            static_cast<float>(pose.R->data[7]) - static_cast<float>(prev_poses.at(i).the_pose.R->data[7]),
-            static_cast<float>(pose.R->data[8]) - static_cast<float>(prev_poses.at(i).the_pose.R->data[8])};
-          pose_delta.rotation = pose_delta_rotation;
-          pose_delta_pub->publish(pose_delta);
-        }
+        // RCLCPP_INFO_STREAM(get_logger(), "Tag pose error " << err);
+        // RCLCPP_INFO_STREAM(get_logger(), "Tag pose R " << pose.R->data[0] << ", " << pose.R->data[1] << ", " << pose.R->data[2]);
+        // RCLCPP_INFO_STREAM(get_logger(), "Tag pose R " << pose.R->data[3] << ", " << pose.R->data[4] << ", " << pose.R->data[5]);
+        // RCLCPP_INFO_STREAM(get_logger(), "Tag pose R " << pose.R->data[6] << ", " << pose.R->data[7] << ", " << pose.R->data[8]);
+        // RCLCPP_INFO_STREAM(get_logger(), "Tag pose t " << pose.t->data[0] << ", " << pose.t->data[1] << ", " << pose.t->data[2]);
 
         // Draw tag outline
         line(frame, cv::Point(det->p[0][0], det->p[0][1]),
@@ -280,6 +284,8 @@ class AprilTagNode : public rclcpp::Node
     std::string apriltag_family;
     apriltag_family_t *tf;
     apriltag_detector_t *detector;
+
+    double tagsize;
 };
 
 int main(int argc, char * argv[])

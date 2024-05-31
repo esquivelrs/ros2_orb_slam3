@@ -4,6 +4,8 @@
     <arg name="use_live_feed" default="true"/>
     <arg name="file_name" default="default.mp4"/>
     <arg name="bag_name" default="nothing"/>
+    <arg name="apriltag_family" default="tagStandard41h12"/>
+    <arg name="tagsize" default="0.115"/>
     <include file="$(find-pkg-share realsense2_camera)/launch/rs_launch.py" if="$(eval '\'$(var use_live_feed)\' == \'true\'')">
         <arg name="enable_accel" value="true"/>
         <arg name="enable_gyro" value="true"/>
@@ -16,11 +18,15 @@
     <!--     <param name="use_live_feed" value="$(var use_live_feed)"/> -->
     <!--     <param name="video_name" value="$(var file_name)"/> -->
     <!-- </node> -->
+    <node pkg="ros2_orb_slam3" exec="apriltag_node"> 
+        <param name="apriltag_family" value="$(var apriltag_family)"/>
+        <param name="tagsize" value="$(var tagsize)"/>
+    </node>
     <node pkg="ros2_orb_slam3" exec="imu_mono_node_cpp" output="screen">
         <param name="sensor_type" value="$(var sensor_type)"/>
         <param name="use_pangolin" value="true"/>
         <param name="use_live_feed" value="$(var use_live_feed)"/>
         <param name="video_name" value="$(var file_name)"/>
     </node>
-    <!-- <executable cmd="ros2 bag play $(find-pkg-share ros2_orb_slam3)/bags/$(var bag_name)" if="$(eval '\'$(var bag_name)\' == \'nothing\'')"/> -->
+    <executable cmd="ros2 bag play $(find-pkg-share ros2_orb_slam3)/bags/$(var bag_name)" if="$(eval '\'$(var bag_name)\' != \'nothing\'')"/>
 </launch>
