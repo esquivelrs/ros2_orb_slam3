@@ -2,22 +2,18 @@
     <arg name="sensor_type" default="imu-monocular"/>
     <arg name="use_pangolin" default="true"/>
     <arg name="use_live_feed" default="true"/>
-    <arg name="file_name" default="default.mp4"/>
+    <arg name="map_file_name" default="default"/>
     <arg name="bag_name" default="nothing"/>
     <arg name="apriltag_family" default="tagStandard41h12"/>
     <arg name="tagsize" default="0.115"/>
+    <arg name="record_bag" default="false"/>
+    <arg name="time_now" default="temp" description="time_now:=$(date +%Y-%m-%d-%H-%M-%S)"/> <!-- https://answers.ros.org/question/325812/rosbag-and-parameters-dump-with-unique-timestamp-in-filename/ -->
     <include file="$(find-pkg-share realsense2_camera)/launch/rs_launch.py" if="$(eval '\'$(var use_live_feed)\' == \'true\'')">
         <arg name="enable_accel" value="true"/>
         <arg name="enable_gyro" value="true"/>
         <arg name="unite_imu_method" value="2"/>
         <arg name="enable_depth" value="false"/>
     </include>
-    <!-- <node pkg="ros2_orb_slam3" exec="mono_node_cpp" if="$(eval '\'$(var sensor_type)\' == \'monocular\'')"> -->
-    <!--     <param name="sensor_type" value="monocular"/> -->
-    <!--     <param name="use_pangolin" value="true"/> -->
-    <!--     <param name="use_live_feed" value="$(var use_live_feed)"/> -->
-    <!--     <param name="video_name" value="$(var file_name)"/> -->
-    <!-- </node> -->
     <node pkg="ros2_orb_slam3" exec="apriltag_node"> 
         <param name="apriltag_family" value="$(var apriltag_family)"/>
         <param name="tagsize" value="$(var tagsize)"/>
@@ -26,7 +22,8 @@
         <param name="sensor_type" value="$(var sensor_type)"/>
         <param name="use_pangolin" value="true"/>
         <param name="use_live_feed" value="$(var use_live_feed)"/>
-        <param name="video_name" value="$(var file_name)"/>
+        <param name="file_name" value="$(var map_file_name)"/>
     </node>
-    <executable cmd="ros2 bag play $(find-pkg-share ros2_orb_slam3)/bags/$(var bag_name)" if="$(eval '\'$(var bag_name)\' != \'nothing\'')"/>
+    <executable cmd="ros2 bag play $(find-pkg-share ros2_orb_slam3)/bags/$(var bag_name)" if="$(eval '\'$(var bag_name)\' != \'nothing\' and \'$(var record_bag)\' == \'false\'')"/>
+    <executable cmd="ros2 bag record -a -o ./ros2_orb_slam3/bags/$(var time_now)_$(var bag_name).bag" if="$(eval '\'$(var record_bag)\' == \'true\'')"/>
 </launch>

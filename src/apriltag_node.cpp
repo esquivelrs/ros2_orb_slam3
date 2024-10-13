@@ -9,10 +9,13 @@
 #include <apriltag/tagStandard52h13.h>
 #include <apriltag/apriltag.h>
 #include <apriltag/apriltag_pose.h>
+#include <apriltag_msgs/msg/april_tag_detection.hpp>
 
 #include <ros2_orb_slam3/msg/pose_delta.hpp>
+#include <ros2_orb_slam3/srv/april_tag_detection.hpp>
 #include <std_msgs/msg/float32.hpp>
 #include <std_msgs/msg/float32_multi_array.hpp>
+#include <geometry_msgs/msg/point.hpp>
 #include <opencv2/opencv.hpp>
 
 #include <sensor_msgs/msg/camera_info.hpp>
@@ -20,8 +23,11 @@
 #include <cv_bridge/cv_bridge.h>
 #include <memory>
 
+#include "System.h"
+
 #include "rclcpp/rclcpp.hpp"
-using std::placeholders::_1;
+#include "ros2_orb_slam3/srv/detail/april_tag_detection__struct.hpp"
+using std::placeholders::_1, std::placeholders::_2;
 
 struct my_pose
 {
@@ -99,6 +105,10 @@ class AprilTagNode : public rclcpp::Node
       // declare publishers
       pose_delta_pub = create_publisher<ros2_orb_slam3::msg::PoseDelta>("pose_delta", 10);
 
+      // declare services
+      apriltag_detection_srv = create_service<ros2_orb_slam3::srv::AprilTagDetection>("apriltag_detection", 
+        std::bind(&AprilTagNode::apriltag_detection_callback, this, _1, _2));
+
       prev_poses.push_back(my_pose{apriltag_pose_t(), -1});
     }
 
@@ -144,6 +154,26 @@ class AprilTagNode : public rclcpp::Node
     }
 
   private:
+    void apriltag_detection_callback(const std::shared_ptr<ros2_orb_slam3::srv::AprilTagDetection_Request>,
+        std::shared_ptr<ros2_orb_slam3::srv::AprilTagDetection_Response> response)
+    {
+      RCLCPP_INFO(get_logger(), "Service called");
+      
+      geometry_msgs::msg::Point center;
+      center.x = info.det->c[0];
+      center.y = info.det->c[1];
+
+      std::array<geometry_msgs::msg::Point, 4> corners;
+      response->id = info.det->id;
+      response->centre = center;
+      response->corners = corners;
+      response->pose_trans = {apriltag_pose.t->data[0], apriltag_pose.t->data[1], apriltag_pose.t->data[2]};
+      response->pose_rotation = {
+        apriltag_pose.R->data[0], apriltag_pose.R->data[1], apriltag_pose.R->data[2],
+        apriltag_pose.R->data[3], apriltag_pose.R->data[4], apriltag_pose.R->data[5],
+        apriltag_pose.R->data[6], apriltag_pose.R->data[7], apriltag_pose.R->data[8]
+      };
+    }
     void camera_intrinsics_callback(const sensor_msgs::msg::CameraInfo msg)
     {
       camera_intrinsics = msg;
@@ -153,6 +183,11 @@ class AprilTagNode : public rclcpp::Node
       info.cx = camera_intrinsics.k[2];
       info.cy = camera_intrinsics.k[5];
     }
+
+    // double get_scale_factor(apriltag_detection_t *det, apriltag_pose_t *pose)
+    // {
+    //
+    // }
 
     void image_callback(const sensor_msgs::msg::Image::SharedPtr msg)
     {
@@ -179,6 +214,7 @@ class AprilTagNode : public rclcpp::Node
 
         apriltag_pose_t pose;
         double err = estimate_tag_pose(&info, &pose);
+        apriltag_pose = pose;
         bool found_pose = false;
         for (size_t i = 0; i < prev_poses.size(); i ++){
           if (prev_poses.at(i).id == det->id) {
@@ -267,6 +303,7 @@ class AprilTagNode : public rclcpp::Node
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_sub;
     rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr camera_intrinsics_sub;
     rclcpp::Publisher<ros2_orb_slam3::msg::PoseDelta>::SharedPtr pose_delta_pub;
+    rclcpp::Service<ros2_orb_slam3::srv::AprilTagDetection>::SharedPtr apriltag_detection_srv;
     // would making this a service call be better? I'm sending over the difference
     // in change in pose to another node. This happens whenever I get a new image,
     // and the other node is also going to be getting many images. However I probalby
@@ -281,6 +318,9 @@ class AprilTagNode : public rclcpp::Node
     std::vector<my_pose> prev_poses;
     apriltag_detection_info_t info;
 
+    apriltag_detection_t apriltag_detection;
+    apriltag_pose_t apriltag_pose;
+    
     std::string apriltag_family;
     apriltag_family_t *tf;
     apriltag_detector_t *detector;

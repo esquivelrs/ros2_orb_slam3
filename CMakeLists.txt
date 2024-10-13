@@ -50,6 +50,8 @@ find_package(ament_cmake_python REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclpy REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
+find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
@@ -93,7 +95,9 @@ set(THIS_PACKAGE_INCLUDE_DEPENDS
   rclcpp
   rclpy
   std_msgs
+  std_srvs
   sensor_msgs
+  geometry_msgs
   tf2
   tf2_ros
   octomap_server
@@ -224,6 +228,10 @@ add_executable(visualize_point_cloud
     src/visualize_point_cloud.cpp
 )
 
+add_executable(compare_point_clouds
+    src/compare_point_clouds.cpp
+)
+
 add_executable(apriltag_node
     src/apriltag_node.cpp
 )
@@ -248,6 +256,10 @@ ament_target_dependencies(visualize_point_cloud
   PUBLIC ${THIS_PACKAGE_INCLUDE_DEPENDS}
 )
 
+ament_target_dependencies(compare_point_clouds
+  PUBLIC ${THIS_PACKAGE_INCLUDE_DEPENDS}
+)
+
 ament_target_dependencies(apriltag_node
   PUBLIC ${THIS_PACKAGE_INCLUDE_DEPENDS}
 )
@@ -257,7 +269,8 @@ find_package(rosidl_default_generators REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
     "msg/PoseDelta.msg"
-    DEPENDENCIES std_msgs
+    "srv/AprilTagDetection.srv"
+    DEPENDENCIES std_msgs std_srvs geometry_msgs
 )
 
 rosidl_get_typesupport_target(cpp_typesupport_target
@@ -270,7 +283,7 @@ rosidl_get_typesupport_target(cpp_typesupport_target
 target_link_libraries(mono_node_cpp PUBLIC orb_slam3_lib) # Link a node with the internal shared library
 target_link_libraries(imu_mono_node_cpp PUBLIC orb_slam3_lib "${cpp_typesupport_target}") # Link a node with the internal shared library
 target_link_libraries(example_mono_node_cpp PUBLIC orb_slam3_lib) # Link a node with the internal shared library
-target_link_libraries(apriltag_node PUBLIC apriltag::apriltag "${cpp_typesupport_target}")
+target_link_libraries(apriltag_node PUBLIC apriltag::apriltag "${cpp_typesupport_target}" orb_slam3_lib)
 
 # Install all the header files in package/package/include
 install (DIRECTORY include/ 
@@ -307,7 +320,7 @@ install(
 )
 
 # Install our node and library
-install(TARGETS apriltag_node visualize_point_cloud capture_video mono_node_cpp imu_mono_node_cpp example_mono_node_cpp orb_slam3_lib
+install(TARGETS apriltag_node compare_point_clouds visualize_point_cloud capture_video mono_node_cpp imu_mono_node_cpp example_mono_node_cpp orb_slam3_lib
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION lib/${PROJECT_NAME}

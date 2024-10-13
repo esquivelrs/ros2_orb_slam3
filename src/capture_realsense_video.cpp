@@ -23,10 +23,11 @@ class CaptureVideo : public rclcpp::Node
     count(0)
     {
       // declare parameters
-      declare_parameter("video_name", "realsense_video.mp4");
+      declare_parameter("file_name", "realsense_video");
 
       // get parameters
-      video_name = get_parameter("video_name").as_string();
+      file_name = get_parameter("file_name").as_string() + ".mp4";
+      RCLCPP_INFO_STREAM(get_logger(), "file_name: " << file_name);
 
       image_sub = create_subscription<sensor_msgs::msg::Image>(
           "camera/color/image_raw", 10, std::bind(&CaptureVideo::image_callback, this, _1));
@@ -41,26 +42,31 @@ class CaptureVideo : public rclcpp::Node
       time_string = ss.str();
 
       // get the video file ready and open it
-      std::string file_name = std::string(PROJECT_PATH) + "/videos/"+ time_string + "_" + video_name;
-      output_video.open(file_name, cv::VideoWriter::fourcc('m', 'p', '4', 'v'), 30, cv::Size(1280, 720), false);
+      std::string video_file_name = std::string(PROJECT_PATH) + "/videos/"+ time_string + "_" + file_name;
+      RCLCPP_INFO_STREAM(get_logger(), "video_file_name: " << video_file_name);
+      output_video.open(video_file_name, cv::VideoWriter::fourcc('m', 'p', '4', 'v'), 30, cv::Size(1280, 720), false);
       if (!output_video.isOpened())
       {
         RCLCPP_ERROR(get_logger(), "Could not open video file for writing");
         rclcpp::shutdown();
+      } else {
+        RCLCPP_INFO(get_logger(), "video file opened");
       }
 
       // create file for holding image timestamps
       std::string image_timestamp_file_name = std::string(PROJECT_PATH) +
-        "/videos/" + time_string + "_" + video_name.substr(0, video_name.length() - 4) + "_timestamps.csv";
+        "/videos/" + time_string + "_" + file_name.substr(0, file_name.length() - 4) + "_timestamps.csv";
       image_timestamp_file.open(image_timestamp_file_name);
       if (!image_timestamp_file.is_open())
       {
         RCLCPP_ERROR(get_logger(), "Could not open image timestamp file for writing");
         rclcpp::shutdown();
+      } else {
+        RCLCPP_INFO(get_logger(), "image timestamp file opened");
       }
 
       // get the imu file ready and open it
-      std::string imu_file_name = std::string(PROJECT_PATH) + "/videos/" + time_string + "_" + video_name.substr(0, video_name.length() - 4) + ".csv";
+      std::string imu_file_name = std::string(PROJECT_PATH) + "/videos/" + time_string + "_" + file_name.substr(0, file_name.length() - 4) + ".csv";
       imu_file.open(imu_file_name);
       if (!imu_file.is_open())
       {
@@ -111,7 +117,7 @@ class CaptureVideo : public rclcpp::Node
     }
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_sub;
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub;
-    std::string video_name;
+    std::string file_name;
     cv::VideoWriter output_video;
     std::ofstream imu_file;
     std::ofstream image_timestamp_file;

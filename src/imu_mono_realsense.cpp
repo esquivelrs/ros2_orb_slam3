@@ -1,19 +1,22 @@
 #include <rclcpp/callback_group.hpp>
 #include <rclcpp/executors/multi_threaded_executor.hpp>
 #include <rclcpp/logging.hpp>
+#include <std_srvs/srv/empty.hpp>
 #include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/point_cloud.hpp>
 #include <geometry_msgs/msg/quaternion.hpp>
 #include <geometry_msgs/msg/vector3.hpp>
 #include <ros2_orb_slam3/msg/pose_delta.hpp>
+#include <ros2_orb_slam3/srv/april_tag_detection.hpp>
+#include <geometry_msgs/msg/point.hpp>
 
 #include <iostream>
 #include <fstream>
 #include <fstream>
 #include <chrono>
 #include <ctime>
-#include <sstream>
+#include <signal.h>
 
 #include <Eigen/Dense>
 #include <cv_bridge/cv_bridge.h>
@@ -30,7 +33,7 @@
 #include <rclcpp/rclcpp.hpp>
 
 using namespace std::chrono_literals;
-using std::placeholders::_1;
+using std::placeholders::_1, std::placeholders::_2;
 
 class ImuMonoRealSense : public rclcpp::Node
 {
@@ -41,27 +44,28 @@ class ImuMonoRealSense : public rclcpp::Node
       pose_ready(false),
       count(0),
       count2(0),
-      count3(0)
+      scale_factor(0.0)
     {
 
       // declare parameters
       declare_parameter("sensor_type", "imu-monocular");
       declare_parameter("use_pangolin", true);
       declare_parameter("use_live_feed", false);
-      declare_parameter("video_name", "output.mp4");
+      declare_parameter("file_name", "output");
+      declare_parameter("epsilon", 25.0); // pixels
 
       // get parameters
       sensor_type_param = get_parameter("sensor_type").as_string();
       bool use_pangolin = get_parameter("use_pangolin").as_bool();
       use_live_feed = get_parameter("use_live_feed").as_bool();
-      video_name = get_parameter("video_name").as_string();
+      file_name = get_parameter("file_name").as_string();
+      eps = get_parameter("epsilon").as_double();
 
       // define callback groups
       image_callback_group = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
       imu_callback_group = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
-      image_timer_callback_group = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
-      imu_timer_callback_group = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
       pose_delta_callback_group = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+      apriltag_callback_group = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
 
       rclcpp::SubscriptionOptions image_options;
       image_options.callback_group = image_callback_group;
@@ -86,40 +90,6 @@ class ImuMonoRealSense : public rclcpp::Node
         rclcpp::shutdown();
       }
 
-      // open the video and imu files
-      std::string imu_file_name = std::string(PROJECT_PATH) + "/videos/" + video_name.substr(0, video_name.length() - 4) + ".csv";
-      if (use_live_feed)
-      {
-        // dont open anything
-        input_video.open(0);
-      }
-      else
-      {
-        // open the imu file
-        imu_file.open(imu_file_name);
-
-        // open the timestamp file
-        std::string timestamp_file_name = std::string(PROJECT_PATH) + "/videos/" + video_name.substr(0, video_name.length() - 4) + "_timestamps.csv";
-        video_timestamp_file.open(timestamp_file_name);
-
-        // open video file
-        input_video.open(std::string(PROJECT_PATH) + "/videos/" + video_name);
-      }
-
-      if (!input_video.isOpened() && !use_live_feed)
-      {
-        RCLCPP_ERROR(get_logger(), "Could not open video file for reading");
-      } else {
-        RCLCPP_INFO(get_logger(), "Opened video file for reading");
-      }
-
-      if (!imu_file.is_open() && !use_live_feed)
-      {
-        RCLCPP_ERROR_STREAM(get_logger(), "Could not open imu file for reading: " << imu_file_name);
-      } else {
-        RCLCPP_INFO(get_logger(), "Opened imu file for reading");
-      }
-
       // setup orb slam object
       pAgent = std::make_shared<ORB_SLAM3::System>(
           vocabulary_file_path, 
@@ -139,53 +109,48 @@ class ImuMonoRealSense : public rclcpp::Node
       pose_delta_sub = create_subscription<ros2_orb_slam3::msg::PoseDelta>(
           "pose_delta", 10, std::bind(&ImuMonoRealSense::pose_delta_callback, this, _1), pose_delta_options);
 
-      // create publishers
+      // create clients
+      apriltag_client = create_client<ros2_orb_slam3::srv::AprilTagDetection>("apriltag_detection", rmw_qos_profile_services_default, apriltag_callback_group);
 
-      // create timer
-      image_timer = create_wall_timer(1s/30, std::bind(&ImuMonoRealSense::image_timer_callback, this), image_timer_callback_group);
-      imu_timer = create_wall_timer(1s/200, std::bind(&ImuMonoRealSense::imu_timer_callback, this), imu_timer_callback_group);
-      
-      pose_delta = ros2_orb_slam3::msg::PoseDelta();
-      sum_pose_delta = {0, 0, 0};
-      sum_Tcw_delta = {0, 0, 0};
-    }
-
-    ~ImuMonoRealSense()
-    {
-      if (use_live_feed) {
-        vector<ORB_SLAM3::MapPoint*>map_points = pAgent->GetTrackedMapPoints();
-        save_map_to_csv(map_points);
-        pAgent->Shutdown();
+      while (!apriltag_client->wait_for_service(1s)) {
+        if (!rclcpp::ok()) {
+          RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "Interrupted while waiting for the service. Exiting.");
+          rclcpp::shutdown();
+        }
+        RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "service not available, waiting again...");
       }
+
+      // create services
+      save_map_service = create_service<std_srvs::srv::Empty>(
+          "save_map", std::bind(&ImuMonoRealSense::save_map_callback, this, _1, _2));
     }
+
+    // ~ImuMonoRealSense()
+    // {
+    //   vector<ORB_SLAM3::MapPoint*>map_points = pAgent->GetAllMapPoints();
+    //   save_map_to_csv(map_points);
+    //   pAgent->Shutdown();
+    // }
 
   private:
+    void save_map_callback(const std::shared_ptr<std_srvs::srv::Empty::Request>,
+        std::shared_ptr<std_srvs::srv::Empty::Response>)
+    {
+      vector<ORB_SLAM3::MapPoint*>map_points = pAgent->GetAllMapPoints();
+      save_map_to_csv(map_points);
+    }
 
     void save_map_to_csv(vector<ORB_SLAM3::MapPoint*> map_points)
     {
 
       // calculate the scale factor by averaging things
-      // double x_sum = 0;
-      // double y_sum = 0;
-      // double z_sum = 0;
-      // for (size_t i = 0; i < scale_factors.size(); i ++) {
-      //   x_sum += scale_factors.at(i).at(0);
-      //   y_sum += scale_factors.at(i).at(1);
-      //   z_sum += scale_factors.at(i).at(2);
-      // }
-      // std::vector<double> sf = {x_sum/scale_factors.size(),
-      //                                            y_sum/scale_factors.size(),
-      //                                            z_sum/scale_factors.size()};
-      // for (size_t i = 0; i < sf.size(); i++) {
-      //   RCLCPP_INFO_STREAM(get_logger(), "scale factor " << i << ": " << sf.at(i));
-      // }
-      double scale_factor = 0;
-      for (size_t i = 0; i < scale_factors.size(); i ++) {
-        scale_factor += scale_factors.at(i);
+      for (size_t i = 0; i < scale_factors.size(); i++) {
+        scale_factor += scale_factors[i];
       }
-      scale_factor = scale_factor/scale_factors.size();
-      RCLCPP_INFO_STREAM(get_logger(), "scale factor: " << scale_factor);
+      scale_factor /= scale_factors.size();
+      RCLCPP_INFO_STREAM(get_logger(), "final scale factor: " << scale_factor);
       std::ofstream map_file;
+      std::ofstream unscaled_map_file;
       // add date and time to the map file name
       std::string time_string;
       if(use_live_feed) {
@@ -193,25 +158,42 @@ class ImuMonoRealSense : public rclcpp::Node
         time_string = std::ctime(&now);
         time_string = time_string.substr(0, time_string.length() - 1) + "_";
       }
-      std::string map_file_name = std::string(PROJECT_PATH) + "/maps/" + video_name.substr(0, video_name.length() - 4) + "_" + time_string + "map" + ".csv";
+      std::string map_file_name = std::string(PROJECT_PATH) + "/maps/" + file_name + "_" + time_string + "map" + ".csv";
+      std::string unscaled_map_file_name = std::string(PROJECT_PATH) + "/unscaled_maps/" + file_name + "_" + time_string + "map" + ".csv";
       map_file.open(map_file_name);
-      if(map_file.is_open())
+      unscaled_map_file.open(unscaled_map_file_name);
+      
+      if(map_file.is_open() && unscaled_map_file.is_open())
       {
+        RCLCPP_INFO_STREAM(get_logger(), "Saving map to " << map_file_name);
+        RCLCPP_INFO_STREAM(get_logger(), "Saving unscaled map to " << unscaled_map_file_name);
         map_file << initial_orientation->a[0] << "," << initial_orientation->a[1]
           << "," << initial_orientation->a[2] << "," << initial_orientation->w[0]
           << "," << initial_orientation->w[1] << "," << initial_orientation->w[2]
           << std::endl;
+        unscaled_map_file << initial_orientation->a[0] << "," << initial_orientation->a[1]
+          << "," << initial_orientation->a[2] << "," << initial_orientation->w[0]
+          << "," << initial_orientation->w[1] << "," << initial_orientation->w[2]
+          << std::endl;
+        RCLCPP_INFO_STREAM(get_logger(), "Size of the map: " << map_points.size());
         for (auto &map_point : map_points)
         {
           Eigen::Vector3f pos = map_point->GetWorldPos();
-          map_file << pos[0] * scale_factor << "," << pos[1] * scale_factor << "," << pos[2] * scale_factor << std::endl;
+          map_file << std::fixed << std::setprecision(3) << pos[0] * scale_factor << "," << pos[1] * scale_factor << "," << pos[2] * scale_factor << std::endl;
+          unscaled_map_file << std::fixed << std::setprecision(3) << pos[0] << "," << pos[1] << "," << pos[2] << std::endl;
         }
         map_file.close();
       }
       else
       {
-        RCLCPP_ERROR(get_logger(), "Could not open map file for writing");
+        if (!map_file.is_open()) {
+          RCLCPP_ERROR(get_logger(), "Could not open map file for writing");
+        } else {
+          RCLCPP_ERROR(get_logger(), "Could not open unscaled map file for writing");
+        }
       }
+      RCLCPP_INFO_STREAM(get_logger(), "Map saved to " << map_file_name);
+      RCLCPP_INFO_STREAM(get_logger(), "Unscaled map saved to " << unscaled_map_file_name);
     }
 
     void pose_delta_callback(const ros2_orb_slam3::msg::PoseDelta msg)
@@ -233,65 +215,55 @@ class ImuMonoRealSense : public rclcpp::Node
 
       if (sensor_type_param == "monocular") {
         Sophus::SE3f Tcw = pAgent->TrackMonocular(frame, timestamp);
-        auto key_points = pAgent->GetTrackedKeyPoints();
-        auto map_points = pAgent->GetTrackedMapPoints();
-        RCLCPP_INFO_STREAM(get_logger(), "key_pionts: " << key_points.size());
-        RCLCPP_INFO_STREAM(get_logger(), "map_points: " << map_points.size());
-        RCLCPP_INFO_STREAM(get_logger(), "key_points[0]: " << key_points.at(0).pt);
-        RCLCPP_INFO_STREAM(get_logger(), "map_points[0]: " << map_points.at(0));
-        // RCLCPP_INFO_STREAM(get_logger(), "Tcw translation: \n" << Tcw.translation());
-        // RCLCPP_INFO_STREAM(get_logger(), "Tcw rotation[0]: \n" << Tcw.rotationMatrix().array());
-        for (size_t i = 0; i < key_points.size(); i++) {
-          if (map_points.at(i) != 0) {
-            RCLCPP_INFO_STREAM(get_logger(), "key_point: " << key_points.at(i).pt << ", map_point: " << map_points.at(i)->GetWorldPos()[0]
-                << ", " << map_points.at(i)->GetWorldPos()[1] << ", " << map_points.at(i)->GetWorldPos()[2]);
-          }
-        }
+
+        // only on the first slam iteration
         if (!Tcw.matrix().isIdentity() && count2 == 0) {
-          initial_orientation = current_imu_meas;
-          Tcw_prev = Tcw;
-          count2++;
-          return;
-        }
-
-        if (count2 > 0 && pose_ready) {
-            std::vector<float> Tcw_delta = {
-              Tcw.translation()[0] - Tcw_prev.translation()[0],
-              Tcw.translation()[1] - Tcw_prev.translation()[1],
-              Tcw.translation()[2] - Tcw_prev.translation()[2]
-            };
-
-
-            sum_Tcw_delta.at(0) += Tcw_delta.at(0);
-            sum_Tcw_delta.at(1) += Tcw_delta.at(1);
-            sum_Tcw_delta.at(2) += Tcw_delta.at(2);
-            Tcw_prev = Tcw;
-            // RCLCPP_INFO_STREAM(get_logger(), "pose_delta: \n" << pose_delta.translation.data.at(0) << ", " << pose_delta.translation.data.at(1) << ", " << pose_delta.translation.data.at(2) << "\n");
-            sum_pose_delta.at(0) += pose_delta.translation.data.at(0);
-            sum_pose_delta.at(1) += pose_delta.translation.data.at(1);
-            sum_pose_delta.at(2) += pose_delta.translation.data.at(2);
-            if(count3 == 30) {
-              Eigen::Vector3f pose_delta = {sum_pose_delta.at(0), sum_pose_delta.at(1), sum_pose_delta.at(2)};
-              Eigen::Vector3f Tcw_delta = {sum_Tcw_delta.at(0), sum_Tcw_delta.at(1), sum_Tcw_delta.at(2)};
-              double scale_factor = Tcw_delta.norm() / pose_delta.norm();
-              // std::vector<double> scaling = {
-              //   sum_Tcw_delta.at(0)/sum_pose_delta.at(0),
-              //   sum_Tcw_delta.at(1)/sum_pose_delta.at(1),
-              //   sum_Tcw_delta.at(2)/sum_pose_delta.at(2)
-              // };
-              RCLCPP_INFO_STREAM(get_logger(), "sum_pose_delta: " << sum_pose_delta.at(0) << ", " << sum_pose_delta.at(1) << ", " << sum_pose_delta.at(2) << "\n");
-              RCLCPP_INFO_STREAM(get_logger(), "sum_Tcw_delta: " << sum_Tcw_delta.at(0) << ", " << sum_Tcw_delta.at(1) << ", " << sum_Tcw_delta.at(2) << "\n");
-              // scale_factors.push_back(scaling);
-              scale_factors.push_back(scale_factor);
-              sum_Tcw_delta = {0.0, 0.0, 0.0};
-              sum_pose_delta = {0.0, 0.0, 0.0};
-              count3 = 0;
-              RCLCPP_INFO_STREAM(get_logger(), "scale_factor: " << scale_factor);
-              RCLCPP_INFO_STREAM(get_logger(), "scale_factors: " << scale_factors.size() << std::endl);
+          // get the apriltag data
+          auto request = std::make_shared<ros2_orb_slam3::srv::AprilTagDetection::Request>();
+          auto result_future = apriltag_client->async_send_request(request);
+          
+          std::future_status status = result_future.wait_for(1s);
+          while (status != std::future_status::ready) {
+            status = result_future.wait_for(1s);
+          }
+          if (status == std::future_status::ready) {
+            RCLCPP_INFO_STREAM(get_logger(), "apriltag detection ready");
+            auto result = result_future.get();
+            if (result->id != 1) {
+              return;
             }
-            count3++;
-            pose_ready = false;
+            std::vector<cv::KeyPoint> key_points = pAgent->GetTrackedKeyPoints();
+            std::vector<ORB_SLAM3::MapPoint*> map_points = pAgent->GetTrackedMapPoints();
+            std::array<geometry_msgs::msg::Point, 4> corners = result->corners;
+            for (size_t i = 0; i < key_points.size(); i++) {
+              if (map_points.at(i) != 0) {
+                geometry_msgs::msg::Point center = result->centre; // europeans spell center wrong, not me
+                if (std::sqrt(std::pow(center.x - key_points.at(i).pt.x, 2) + std::pow(center.y - key_points.at(i).pt.y, 2)) < eps) {
+                  cv::Mat frame = pAgent->GetCurrentFrame();
+                  cv::circle(frame, key_points.at(i).pt, 5, cv::Scalar(0, 0, 255), 2);
+                  cv::circle(frame, cv::Point(center.x, center.y), 5, cv::Scalar(0, 255, 0), 2);
+                  cv::line(frame, key_points.at(i).pt, cv::Point(center.x, center.y), cv::Scalar(255, 0, 0), 2);
+                  cv::imshow("frame", frame);
+                  cv::waitKey(1);
+                  RCLCPP_INFO_STREAM(get_logger(), "keypoint: " << key_points.at(i).pt.x << ", " << key_points.at(i).pt.y);
+                  RCLCPP_INFO_STREAM(get_logger(), "center: " << center.x << ", " << center.y);
+                  // map array and keyframe array elements are linked by indices
+                  Eigen::Vector3f pos = map_points.at(i)->GetWorldPos();
+                  // scale_factor = (pos[2]/result->pose_trans[2]);
+                  scale_factors.push_back(result->pose_trans[2]/pos[2]);
+                  RCLCPP_INFO_STREAM(get_logger(), "scale factor: " << scale_factors.back());
+                }
+              }
+            }
+          } else {
+            RCLCPP_INFO_STREAM(get_logger(), "apriltag detection not ready");
+          }
+
+
+          initial_orientation = current_imu_meas;
+          count2++;
         }
+
 
       } else if (sensor_type_param == "imu-monocular"){
         Sophus::SE3f Tcw = pAgent->TrackMonocular(frame, timestamp, vImuMeas);
@@ -313,125 +285,29 @@ class ImuMonoRealSense : public rclcpp::Node
           static_cast<float>(msg.linear_acceleration.x), static_cast<float>(msg.linear_acceleration.y), static_cast<float>(msg.linear_acceleration.z),
           static_cast<float>(msg.angular_velocity.x), static_cast<float>(msg.angular_velocity.y), static_cast<float>(msg.angular_velocity.z),
           msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9);
-      vImuMeas.push_back(imu_meas);
+      // vImuMeas.push_back(imu_meas);
+      current_imu_meas = std::make_shared<ORB_SLAM3::IMU::Point>(imu_meas);
       // RCLCPP_INFO_STREAM(get_logger(), "imu timestamp: " << std::fixed << std::setprecision(9) << msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9);
 
 
-    }
-
-    void image_timer_callback()
-    {
-      // RCLCPP_INFO_STREAM(get_logger(), "image timer callback");
-      if (!use_live_feed) {
-        cv::Mat frame;
-        input_video >> frame;
-        auto ros_image = cv_bridge::CvImage(std_msgs::msg::Header(), "mono8", frame).toImageMsg();
-
-        std::string timestamp_line;
-        std::getline(video_timestamp_file, timestamp_line);
-        std::istringstream ss(timestamp_line);
-        std::string token;
-        std::vector<float> timestamp_data;
-        while(std::getline(ss, token, ',')) {
-          timestamp_data.push_back(std::stof(token));
-        }
-
-        timestamp = timestamp_data[0] + timestamp_data[1] * 1e-9;
-        // RCLCPP_INFO_STREAM(get_logger(), "image timestamp: " << std::fixed << std::setprecision(9) << timestamp);
-
-        if (!frame.empty()) {
-          if(image_scale != 1.f) {
-            cv::resize(frame, frame, cv::Size(frame.cols*image_scale, frame.rows*image_scale));
-          }
-
-          if (sensor_type_param == "monocular") {
-            Sophus::SE3f Tcw = pAgent->TrackMonocular(frame, timestamp);
-            RCLCPP_INFO_STREAM(get_logger(), "Tcw translation: \n" << Tcw.translation());
-            // RCLCPP_INFO_STREAM(get_logger(), "Tcw rotation[0]: \n" << Tcw.rotationMatrix().array());
-            if (!Tcw.matrix().isIdentity() && count2 == 0) {
-              initial_orientation = current_imu_meas;
-              Tcw_prev = Tcw;
-              count2++;
-              return;
-            }
-
-            if (count2 > 0) {
-              auto Tcw_delta = Tcw.translation() - Tcw_prev.translation();
-              std::vector<double> scaling = {Tcw_delta[0]/pose_delta.translation.data[0],
-                                             Tcw_delta[1]/pose_delta.translation.data[1],
-                                             Tcw_delta[2]/pose_delta.translation.data[2]};
-              // scale_factors.push_back(scaling);
-            }
-
-          } else if (sensor_type_param == "imu-monocular"){
-            Sophus::SE3f Tcw = pAgent->TrackMonocular(frame, timestamp, vImuMeas);
-          }
-          count ++;
-
-          cv::imshow("frame", frame);
-          cv::waitKey(1);
-        } else {
-          RCLCPP_INFO_STREAM_ONCE(get_logger(), "End of video file");
-          vector<ORB_SLAM3::MapPoint*>map_points = pAgent->GetTrackedMapPoints();
-          save_map_to_csv(map_points);
-          pAgent->Shutdown();
-          rclcpp::shutdown();
-        }
-      }
-    }
-
-    void imu_timer_callback()
-    {
-      // RCLCPP_INFO(get_logger(), "imu timer callback");
-      if (!use_live_feed && sensor_type_param == "imu-monocular") {
-        // if the a new frame has been processed, clear the imu data
-        if (count > 0) {
-          vImuMeas.clear();
-          count = 0;
-        }
-        std::string imu_line;
-        std::getline(imu_file, imu_line);
-        std::istringstream ss(imu_line);
-        std::string token;
-        std::vector<double> imu_data;
-        while(std::getline(ss, token, ',')) {
-          imu_data.push_back(std::stod(token));
-        }
-        ORB_SLAM3::IMU::Point imu_meas(imu_data[0], imu_data[1], imu_data[2],
-            imu_data[3], imu_data[4], imu_data[5], imu_data[6]);
-        vImuMeas.push_back(imu_meas);
-      } else if (!use_live_feed && sensor_type_param == "monocular") {
-        std::string imu_line;
-        std::getline(imu_file, imu_line);
-        std::istringstream ss(imu_line);
-        std::string token;
-        std::vector<double> imu_data;
-        while(std::getline(ss, token, ',')) {
-          imu_data.push_back(std::stod(token));
-        }
-        ORB_SLAM3::IMU::Point tmp(imu_data[0], imu_data[1], imu_data[2],
-            imu_data[3], imu_data[4], imu_data[5], imu_data[6]);
-        current_imu_meas = std::make_shared<ORB_SLAM3::IMU::Point>(tmp);
-      }
     }
 
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_sub;
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub;
     rclcpp::Subscription<ros2_orb_slam3::msg::PoseDelta>::SharedPtr pose_delta_sub;
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr image_pub;
-    rclcpp::TimerBase::SharedPtr image_timer;
-    rclcpp::TimerBase::SharedPtr imu_timer;
+    rclcpp::Client<ros2_orb_slam3::srv::AprilTagDetection>::SharedPtr apriltag_client;
+    rclcpp::Service<std_srvs::srv::Empty>::SharedPtr save_map_service;
     rclcpp::CallbackGroup::SharedPtr image_callback_group;
     rclcpp::CallbackGroup::SharedPtr imu_callback_group;
-    rclcpp::CallbackGroup::SharedPtr image_timer_callback_group;
-    rclcpp::CallbackGroup::SharedPtr imu_timer_callback_group;
     rclcpp::CallbackGroup::SharedPtr pose_delta_callback_group;
+    rclcpp::CallbackGroup::SharedPtr apriltag_callback_group;
 
     sensor_msgs::msg::Imu imu_msg;
     std::shared_ptr<ORB_SLAM3::IMU::Point> current_imu_meas;
 
     bool use_live_feed;
-    std::string video_name;
+    std::string file_name;
     std::string sensor_type_param;
 
     cv::VideoCapture input_video;
@@ -452,6 +328,7 @@ class ImuMonoRealSense : public rclcpp::Node
 
     // save the differences between the translation portions of the trajectories
     // here, and then I can use that to scale everything here?
+    double scale_factor;
     std::vector<double> scale_factors;
     ros2_orb_slam3::msg::PoseDelta pose_delta;
     std::vector<float> sum_pose_delta;
@@ -459,11 +336,12 @@ class ImuMonoRealSense : public rclcpp::Node
     Sophus::SE3f Tcw_prev;
 
     std::shared_ptr<ORB_SLAM3::IMU::Point> initial_orientation;
+    double eps;
     bool pose_ready;
     int count;
     int count2;
-    int count3;
 };
+std::shared_ptr<ImuMonoRealSense> node = nullptr;
 
 int main(int argc, char * argv[])
 {

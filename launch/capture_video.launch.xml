@@ -1,12 +1,13 @@
 <launch>
-    <arg name="file_name" default="output.mp4"/>
+    <arg name="file_name" default="output" description="The name of the output mp4, csv, or rosbag files. Do not put file extension."/>
     <include file="$(find-pkg-share realsense2_camera)/launch/rs_launch.py">
         <arg name="enable_accel" value="true"/>
         <arg name="enable_gyro" value="true"/>
         <arg name="unite_imu_method" value="2"/>
+        <arg name="enable_depth" value="false"/>
     </include>
     <node pkg="ros2_orb_slam3" exec="capture_video">
-        <param name="video_name" value="$(var file_name)"/>
+        <param name="file_name" value="$(var file_name)"/>
     </node>
-    <executable cmd="ros2 bag record -a -o $(var file_name)"/>
+    <executable cmd="ros2 bag record -a -o ./ros2_orb_slam3/bags/$(var file_name)"/>
 </launch>

@@ -28,33 +28,55 @@
 
 using namespace std::chrono_literals;
 
-class VisualizePointCloud : public rclcpp::Node
+class ComparePointClouds : public rclcpp::Node
 {
   public:
-    VisualizePointCloud()
-    : Node("visualize_point_cloud")
+    ComparePointClouds()
+    : Node("compare_point_clouds")
     {
       // declare parameters
-      declare_parameter("map_file_name", "2024-05-05_01:44:37 PM_graham_apt_imu_map.csv");
-      std::string file_name = get_parameter("map_file_name").as_string();
+      declare_parameter("map_file_name0", "none");
+      declare_parameter("map_file_name1", "none");
+      declare_parameter("map_file_name2", "none");
+      std::string file_name0 = get_parameter("map_file_name0").as_string();
+      std::string file_name1 = get_parameter("map_file_name1").as_string();
+      std::string file_name2 = get_parameter("map_file_name2").as_string();
 
-      map_file_path = static_cast<std::string>(PROJECT_PATH) + "/maps/"+ file_name;
-      unscaled_map_file_path = static_cast<std::string>(PROJECT_PATH) + "/unscaled_maps/"+ file_name;
+      if (file_name0 == "none" || file_name1 == "none" || file_name2 == "none") {
+        RCLCPP_ERROR(get_logger(), "No map file name provided");
+        rclcpp::shutdown();
+      }
+
+      map_file_path0 = static_cast<std::string>(PROJECT_PATH) + "/maps/"+ file_name0;
+      unscaled_map_file_path0 = static_cast<std::string>(PROJECT_PATH) + "/unscaled_maps/"+ file_name0;
+      map_file_path1 = static_cast<std::string>(PROJECT_PATH) + "/maps/"+ file_name1;
+      unscaled_map_file_path1 = static_cast<std::string>(PROJECT_PATH) + "/unscaled_maps/"+ file_name1;
+      map_file_path2 = static_cast<std::string>(PROJECT_PATH) + "/maps/"+ file_name2;
+      unscaled_map_file_path2 = static_cast<std::string>(PROJECT_PATH) + "/unscaled_maps/"+ file_name2;
 
       // create publishers
-      point_cloud2_publisher = create_publisher<sensor_msgs::msg::PointCloud2>("orb_point_cloud2", 10);
-
-      unscaled_point_cloud2_publisher = create_publisher<sensor_msgs::msg::PointCloud2>("orb_unscaled_point_cloud2", 10);
+      point_cloud2_publisher0 = create_publisher<sensor_msgs::msg::PointCloud2>("point_cloud0", 10);
+      unscaled_point_cloud2_publisher0 = create_publisher<sensor_msgs::msg::PointCloud2>("unscaled_point_cloud0", 10);
+      point_cloud2_publisher1 = create_publisher<sensor_msgs::msg::PointCloud2>("point_cloud1", 10);
+      unscaled_point_cloud2_publisher1 = create_publisher<sensor_msgs::msg::PointCloud2>("unscaled_point_cloud1", 10);
+      point_cloud2_publisher2 = create_publisher<sensor_msgs::msg::PointCloud2>("point_cloud2", 10);
+      unscaled_point_cloud2_publisher2 = create_publisher<sensor_msgs::msg::PointCloud2>("unscaled_point_cloud2", 10);
 
       // Initialize the transform broadcaster
       tf_broadcaster =
         std::make_unique<tf2_ros::TransformBroadcaster>(*this);
 
       timer = create_wall_timer(
-      500ms, std::bind(&VisualizePointCloud::timer_callback, this));
+      500ms, std::bind(&ComparePointClouds::timer_callback, this));
 
-      load_point_cloud(map_file_path, point_cloud2);
-      load_point_cloud(unscaled_map_file_path, unscaled_point_cloud2);
+      load_point_cloud(map_file_path0, point_cloud0);
+      load_point_cloud(unscaled_map_file_path0, unscaled_point_cloud0);
+
+      load_point_cloud(map_file_path1, point_cloud1);
+      load_point_cloud(unscaled_map_file_path1, unscaled_point_cloud1);
+
+      load_point_cloud(map_file_path2, point_cloud2);
+      load_point_cloud(unscaled_map_file_path2, unscaled_point_cloud2);
     }
 
   private:
@@ -152,7 +174,7 @@ class VisualizePointCloud : public rclcpp::Node
       point_cloud.row_step = 12 * points.size();
       point_cloud.is_dense = true;
       point_cloud.is_bigendian = false;
-      point_cloud.data.resize(point_cloud2.row_step);
+      point_cloud.data.resize(point_cloud.row_step);
       for (int i = 0; i < points.size(); i++) {
         memcpy(&point_cloud.data[i * 12], &points[i].x, 4);
         memcpy(&point_cloud.data[i * 12 + 4], &points[i].y, 4);
@@ -169,7 +191,6 @@ class VisualizePointCloud : public rclcpp::Node
       sor.setStddevMulThresh(0.5);
       sor.filter(*cloud_filtered);
       pcl::toROSMsg(*cloud_filtered, point_cloud);
-
     }
 
     void timer_callback()
@@ -186,29 +207,50 @@ class VisualizePointCloud : public rclcpp::Node
       t.transform.translation.z = 1.5;
       tf_broadcaster->sendTransform(t);
       
+      point_cloud0.header.stamp = get_clock()->now();
+      unscaled_point_cloud0.header.stamp = get_clock()->now();
+      point_cloud2_publisher0->publish(point_cloud0);
+      unscaled_point_cloud2_publisher0->publish(unscaled_point_cloud0);
+
+      point_cloud1.header.stamp = get_clock()->now();
+      unscaled_point_cloud1.header.stamp = get_clock()->now();
+      point_cloud2_publisher1->publish(point_cloud1);
+      unscaled_point_cloud2_publisher1->publish(unscaled_point_cloud1);
+
       point_cloud2.header.stamp = get_clock()->now();
       unscaled_point_cloud2.header.stamp = get_clock()->now();
-      point_cloud2_publisher->publish(point_cloud2);
-      unscaled_point_cloud2_publisher->publish(unscaled_point_cloud2);
+      point_cloud2_publisher2->publish(point_cloud2);
+      unscaled_point_cloud2_publisher2->publish(unscaled_point_cloud2);
     }
     rclcpp::TimerBase::SharedPtr timer;
-    rclcpp::Publisher<sensor_msgs::msg::PointCloud>::SharedPtr point_cloud_publisher;
-    rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr point_cloud2_publisher;
-    rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr unscaled_point_cloud2_publisher;
+    rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr point_cloud2_publisher0;
+    rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr unscaled_point_cloud2_publisher0;
+    rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr point_cloud2_publisher1;
+    rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr unscaled_point_cloud2_publisher1;
+    rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr point_cloud2_publisher2;
+    rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr unscaled_point_cloud2_publisher2;
     rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr occupancy_grid_sub;
+    sensor_msgs::msg::PointCloud2 point_cloud0;
+    sensor_msgs::msg::PointCloud2 unscaled_point_cloud0;
+    sensor_msgs::msg::PointCloud2 point_cloud1;
+    sensor_msgs::msg::PointCloud2 unscaled_point_cloud1;
     sensor_msgs::msg::PointCloud2 point_cloud2;
     sensor_msgs::msg::PointCloud2 unscaled_point_cloud2;
     tf2::Quaternion initial_orientation;
     std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster;
-    std::string map_file_path;
-    std::string unscaled_map_file_path;
+    std::string map_file_path0;
+    std::string unscaled_map_file_path0;
+    std::string map_file_path1;
+    std::string unscaled_map_file_path1;
+    std::string map_file_path2;
+    std::string unscaled_map_file_path2;
 
 };
 
 int main(int argc, char * argv[])
 {
   rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<VisualizePointCloud>());
+  rclcpp::spin(std::make_shared<ComparePointClouds>());
   rclcpp::shutdown();
   return 0;
 }
